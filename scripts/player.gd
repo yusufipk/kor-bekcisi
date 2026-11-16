@@ -10,8 +10,8 @@ const SLIDE_SPEED := 21.0
 const SLIDE_TIME := 0.38
 const SLIDE_CD := 0.85
 
-var hp := 120.0
-var max_hp := 120.0
+var hp := 140.0
+var max_hp := 140.0
 var invuln_t := 0.0
 var slide_t := 0.0
 var slide_cd := 0.0
@@ -177,14 +177,15 @@ func _update_anim(spd: float, on_floor: bool) -> void:
 func is_invulnerable() -> bool:
 	return invuln_t > 0.0 or slide_t > 0.0 or dead
 
-func hurt(dmg: float, from: Vector3) -> void:
+## Returns true when the hit landed (not blocked by i-frames or a cinematic).
+func hurt(dmg: float, from: Vector3) -> bool:
 	if is_invulnerable():
-		return
+		return false
 	var g = Game.inst
 	if g.state != Game.S_PLAY or g.won:
-		return
+		return false
 	hp -= dmg * g.st.armor
-	invuln_t = 0.7
+	invuln_t = 1.0
 	hurt_flash = 1.0
 	g.stats_damage_taken += dmg * g.st.armor
 	if g.demo:
@@ -200,10 +201,11 @@ func hurt(dmg: float, from: Vector3) -> void:
 		hp = maxf(hp, 1.0)
 	if hp <= 0.0:
 		if g.try_revive():
-			return
+			return true
 		hp = 0.0
 		dead = true
 		g.on_player_died()
+	return true
 
 func heal(v: float) -> void:
 	hp = minf(max_hp, hp + v)

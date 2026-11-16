@@ -56,6 +56,11 @@ func _setup_input() -> void:
 	var mb := InputEventMouseButton.new()
 	mb.button_index = MOUSE_BUTTON_RIGHT
 	InputMap.action_add_event("slide", mb)
+	# Space is the jump key: it must never press a focused menu button, or a
+	# player still jumping when they die skips the summary and starts a new run.
+	for ev in InputMap.action_get_events("ui_accept"):
+		if ev is InputEventKey and (ev.keycode == KEY_SPACE or ev.physical_keycode == KEY_SPACE):
+			InputMap.action_erase_event("ui_accept", ev)
 
 ## Load a save file that may only hold plain values. ConfigFile.load would
 ## instantiate Object(...) and Resource(...) values while parsing, before any

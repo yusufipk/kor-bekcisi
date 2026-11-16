@@ -50,12 +50,12 @@ func spawn(p: Vector3) -> void:
 		add_child(nd)
 		seg_nodes.append(nd)
 	# It bursts out of the ground: dust and a roar.
-	g.fx.ring(p, 9.0, Color(1.0, 0.4, 0.6), 0.6, 0.25, 0.25)
+	g.fx.ring(p, 9.0, Color(1.0, 0.7, 0.25), 0.6, 0.25, 0.25)
 	for k in 4:
 		g.fx.dust(p + Vector3(randf_range(-3, 3), 0, randf_range(-3, 3)), 8)
 	Sfx.play("serpent", Vector3.INF, 1.0, 0.0)
 	g.shake(0.6)
-	g.ui.banner("ARA BOSS", "Kor Yılanı", Color(1.0, 0.45, 0.75))
+	g.ui.banner("ARA BOSS", "Kor Yılanı", Color(1.0, 0.72, 0.3))
 	g.ui.show_boss_bar(true, "Kor Yılanı", head)
 	state = "hunt"
 	timer = 3.5
@@ -80,14 +80,20 @@ func _overlay() -> ShaderMaterial:
 	var sh := Shader.new()
 	sh.code = """
 shader_type spatial;
-render_mode unshaded, blend_add, depth_draw_never;
+render_mode unshaded, blend_mix, depth_draw_never;
 uniform float flash = 0.0;
 uniform float warn = 0.0;
 global uniform float night;
 void fragment() {
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.0);
 	float pulse = 0.6 + 0.4 * sin(TIME * 30.0);
-	ALBEDO = vec3(1.0, 0.85, 0.8) * flash * 0.1 + vec3(1.0, 0.1, 0.05) * warn * pulse * 0.8 + vec3(1.0, 0.3, 0.6) * rim * (0.45 + night * 0.4);
+	// A half-opaque ember coat turns the pink model into the ember serpent,
+	// apart from the violet horde and the pink sunset sky.
+	vec3 ember = mix(vec3(0.95, 0.42, 0.08), vec3(1.0, 0.8, 0.35), rim);
+	ember = mix(ember, vec3(1.0, 0.95, 0.9), flash * 0.3);
+	ember = mix(ember, vec3(1.0, 0.1, 0.05), warn * pulse);
+	ALBEDO = ember;
+	ALPHA = clamp(0.42 + rim * (0.35 + night * 0.2) + warn * pulse * 0.4, 0.0, 0.95);
 }
 """
 	var m := ShaderMaterial.new()
@@ -111,7 +117,7 @@ func on_killed() -> void:
 func retreat() -> void:
 	var g = Game.inst
 	if head:
-		g.fx.ring(head.pos, 6.0, Color(1.0, 0.4, 0.6), 0.5, 0.2, 0.2)
+		g.fx.ring(head.pos, 6.0, Color(1.0, 0.7, 0.25), 0.5, 0.2, 0.2)
 		g.em.dissolve(head)
 	for s in segs:
 		g.em.dissolve(s)
@@ -249,7 +255,7 @@ func _die_step(dt: float) -> void:
 	if die_i >= 0:
 		var s = segs[die_i]
 		var p: Vector3 = s.pos
-		g.fx.burst(p + Vector3(0, 1.0, 0), Color(1.0, 0.45, 0.7), 16, 1.8)
+		g.fx.burst(p + Vector3(0, 1.0, 0), Color(1.0, 0.7, 0.3), 16, 1.8)
 		g.fx.ring(p, 3.0, Color(1.0, 0.5, 0.3), 0.3, 0.3, 0.2)
 		Sfx.play("explode", p, 0.8)
 		g.shake(0.08)
@@ -260,7 +266,7 @@ func _die_step(dt: float) -> void:
 		die_i -= 1
 		return
 	var hp: Vector3 = head.pos
-	g.fx.burst(hp + Vector3(0, 1.5, 0), Color(1.0, 0.5, 0.8), 50, 3.0)
+	g.fx.burst(hp + Vector3(0, 1.5, 0), Color(1.0, 0.65, 0.25), 50, 3.0)
 	g.fx.burst(hp + Vector3(0, 1.5, 0), Color(1.0, 0.85, 0.4), 30, 2.4)
 	g.fx.ring(hp, 10.0, Color(1.0, 0.6, 0.3), 0.6, 0.25, 0.25)
 	Sfx.play("slam", Vector3.INF, 1.0, 0.0)

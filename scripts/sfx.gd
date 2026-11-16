@@ -11,10 +11,12 @@ const VOICES := 24
 var players: Array = []
 var streams := {}
 var last_play := {}
-var min_gap := {"hit": 0.035, "kill": 0.04, "pickup": 0.03, "shoot": 0.06, "zap": 0.08, "nova": 0.1, "meteor": 0.08, "whoosh": 0.12, "hurt": 0.15, "explode": 0.06, "charge": 0.2}
-# Files in audio/sfx are normalised to about -18 LUFS (tools/sfx_norm.sh); music
-# plays at -16 LUFS. These offsets keep frequent sounds well under the music.
-var base_db := {"hit": -14.0, "kill": -12.0, "pickup": -8.0, "shoot": -20.0, "zap": -12.0, "nova": -9.0, "meteor": -9.0, "whoosh": -18.0, "hurt": -4.0, "levelup": -6.0, "chest": -4.0, "roar": -2.0, "slam": -4.0, "jump": -18.0, "slide": -14.0, "shrine": -6.0, "select": -12.0, "ui": -16.0, "evolve": -3.0, "explode": -8.0, "charge": -8.0, "crystal": -7.0, "serpent": -4.0, "quake": -3.0}
+var min_gap := {"hit": 0.035, "kill": 0.04, "pickup": 0.045, "shoot": 0.06, "zap": 0.08, "nova": 0.1, "meteor": 0.08, "whoosh": 0.12, "hurt": 0.15, "explode": 0.06, "charge": 0.2}
+# Files in audio/sfx measure about -17 LUFS (pickup.ogg -24.9; ffmpeg ebur128);
+# music plays at -16 LUFS before the bus. These offsets keep frequent sounds
+# under the music, put the pickup blip about 8 dB below it (it was 16 dB below
+# and got lost) and the boss roar about 3 dB above it.
+var base_db := {"hit": -14.0, "kill": -12.0, "pickup": 1.5, "shoot": -20.0, "zap": -12.0, "nova": -9.0, "meteor": -9.0, "whoosh": -18.0, "hurt": -4.0, "levelup": -6.0, "chest": -4.0, "roar": 3.0, "slam": -4.0, "jump": -18.0, "slide": -14.0, "shrine": -6.0, "select": -12.0, "ui": -16.0, "evolve": -3.0, "explode": -8.0, "charge": -8.0, "crystal": -7.0, "serpent": -1.0, "quake": 0.0}
 var voice_i := 0
 var listener_pos := Vector3.ZERO
 

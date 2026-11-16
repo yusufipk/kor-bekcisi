@@ -29,6 +29,7 @@ var boss_label: Label
 var bar_target = null
 var vignette: ColorRect
 var markers: Array = []
+var threat_arrow: Label
 var slide_bar: ProgressBar
 var demo_label: Label
 
@@ -187,10 +188,10 @@ void fragment() {
 	boss_box.offset_left = -360; boss_box.offset_right = 360; boss_box.offset_top = 82; boss_box.offset_bottom = 130
 	boss_box.visible = false
 	hud.add_child(boss_box)
-	boss_label = _label("Kül Devi", 22, Color(1.0, 0.5, 0.75))
+	boss_label = _label("Kül Devi", 22, Color(1.0, 0.68, 0.35))
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	boss_box.add_child(boss_label)
-	boss_bar = _bar(Color(0.95, 0.25, 0.6), Color(0, 0, 0, 0.55), 18)
+	boss_bar = _bar(Color(1.0, 0.45, 0.12), Color(0, 0, 0, 0.55), 18)
 	boss_box.add_child(boss_bar)
 	for i in 8:
 		var m := _label("", 26)
@@ -199,6 +200,14 @@ void fragment() {
 		m.size = Vector2(60, 34)
 		hud.add_child(m)
 		markers.append(m)
+	threat_arrow = _label("▲", 64, Color(1.0, 0.45, 0.15))
+	threat_arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	threat_arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	threat_arrow.size = Vector2(80, 80)
+	threat_arrow.pivot_offset = Vector2(40, 40)
+	threat_arrow.add_theme_constant_override("outline_size", 10)
+	threat_arrow.visible = false
+	hud.add_child(threat_arrow)
 	banner_box = VBoxContainer.new()
 	banner_box.set_anchors_preset(Control.PRESET_CENTER)
 	banner_box.offset_left = -500; banner_box.offset_right = 500; banner_box.offset_top = -190; banner_box.offset_bottom = -60
@@ -343,39 +352,86 @@ func _badge(txt: String, col: Color, sz: int) -> PanelContainer:
 	p.add_child(l)
 	return p
 
-## Edge markers for chests and unlit lanterns, so exploring has a direction.
+## Edge markers for chests and the nearest unlit lantern, so exploring has a
+## direction. Off-screen markers stay inside a safe band clear of the HUD and are
+## pushed apart so they never print over each other or over the health number.
 func _update_markers() -> void:
 	var cam: Camera3D = g.cam
 	var vp := get_viewport().get_visible_rect().size
+	var pp: Vector3 = g.player.global_position
 	var targets: Array = []
-	for c in g.pickups.chests:
-		targets.append([c.position + Vector3(0, 1, 0), "▼", Color(1.0, 0.85, 0.3)])
+	var chests: Array = g.pickups.chests.duplicate()
+	chests.sort_custom(func(x, y): return pp.distance_squared_to(x.position) < pp.distance_squared_to(y.position))
+	for k in mini(chests.size(), 2):
+		targets.append([chests[k].position + Vector3(0, 1, 0), "▼", Color(1.0, 0.85, 0.3)])
+	var best = null
 	for s in g.shrines:
-		if not s["lit"]:
-			targets.append([s["p"] + Vector3(0, 4.5, 0), "✦", Color(1.0, 0.7, 0.4)])
+		if not s["lit"] and (best == null or pp.distance_squared_to(s["p"]) < pp.distance_squared_to(best["p"])):
+			best = s
+	if best != null:
+		targets.append([best["p"] + Vector3(0, 4.5, 0), "✦", Color(1.0, 0.7, 0.4)])
+	var lo := Vector2(70.0, 150.0)
+	var hi := Vector2(vp.x - 70.0, vp.y - 180.0)
+	var placed: Array = []
 	for i in markers.size():
 		var m: Label = markers[i]
 		if i >= targets.size():
 			m.visible = false
 			continue
 		var wp: Vector3 = targets[i][0]
-		var behind := cam.is_position_behind(wp)
-		var sp := cam.unproject_position(wp)
-		var margin := 40.0
-		var on := not behind and sp.x > margin and sp.x < vp.x - margin and sp.y > margin and sp.y < vp.y - margin
-		var c := vp * 0.5
-		if behind:
-			sp = c - (sp - c) * 10.0
+		var r := _edge_point(cam, wp, vp, lo, hi)
+		var sp: Vector2 = r[0]
+		var on: bool = r[1]
 		if not on:
-			var d := sp - c
-			var k := minf((c.x - margin) / maxf(absf(d.x), 0.01), (c.y - margin) / maxf(absf(d.y), 0.01))
-			sp = c + d * minf(k, 1.0)
-		var dist: float = g.player.global_position.distance_to(wp)
-		m.text = "%s\n%dm" % [targets[i][1], int(dist)] if not on else targets[i][1]
+			for q in placed:
+				if sp.distance_to(q) < 46.0:
+					sp.y += 46.0 if sp.y < hi.y - 46.0 else -46.0
+		placed.append(sp)
+		m.text = targets[i][1] if on else "%s %dm" % [targets[i][1], int(pp.distance_to(wp))]
 		m.add_theme_color_override("font_color", targets[i][2])
-		m.add_theme_font_size_override("font_size", 22 if not on else 30)
-		m.position = sp - Vector2(30, 17)
+		m.add_theme_font_size_override("font_size", 30 if on else 22)
+		m.size = Vector2(120, 36)
+		m.position = sp - m.size * 0.5
 		m.visible = true
+	_update_threat_arrow(cam, vp, lo, hi)
+
+## Screen point for a world position; off-screen ones are pulled to the edge of
+## the [lo, hi] band along the line from the screen centre. Returns [point, on].
+func _edge_point(cam: Camera3D, wp: Vector3, vp: Vector2, lo: Vector2, hi: Vector2) -> Array:
+	var behind := cam.is_position_behind(wp)
+	var sp := cam.unproject_position(wp)
+	var on := not behind and sp.x > 40.0 and sp.x < vp.x - 40.0 and sp.y > 40.0 and sp.y < vp.y - 40.0
+	if on:
+		return [sp, true]
+	var c := (lo + hi) * 0.5
+	if behind:
+		sp = c - (sp - c) * 10.0
+	var d := sp - c
+	var half := (hi - lo) * 0.5
+	var k := minf(half.x / maxf(absf(d.x), 0.01), half.y / maxf(absf(d.y), 0.01))
+	return [c + d * minf(k, 1.0), false]
+
+## A big arrow at the screen edge while the boss or the serpent is out of view.
+func _update_threat_arrow(cam: Camera3D, vp: Vector2, lo: Vector2, hi: Vector2) -> void:
+	var tgt = null
+	if g.em.boss != null and g.em.boss.alive:
+		tgt = g.em.boss
+	elif g.serpent and g.serpent.active and g.serpent.head and g.serpent.head.alive:
+		tgt = g.serpent.head
+	if tgt == null:
+		threat_arrow.visible = false
+		return
+	var r := _edge_point(cam, tgt.pos + Vector3(0, 3.0, 0), vp, lo, hi)
+	if r[1]:
+		threat_arrow.visible = false
+		return
+	var sp: Vector2 = r[0]
+	var d: Vector2 = sp - (lo + hi) * 0.5
+	threat_arrow.visible = true
+	threat_arrow.position = sp - threat_arrow.size * 0.5
+	threat_arrow.rotation = d.angle() + PI * 0.5
+	var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.012)
+	threat_arrow.modulate = Color(1, 1, 1, pulse)
 
 # ------------------------------------------------------------------ title
 
@@ -722,7 +778,10 @@ func show_levelup(choices: Array, chest: bool) -> void:
 	for c in choices:
 		if c["kind"] == "e":
 			has_evo = true
+	var picks: int = g.pending_levels + g.pending_chest
 	lvl_title.text = "Dönüşüm hazır!" if has_evo else ("Hazine!" if chest else "Seviye %d" % g.level)
+	if picks > 1:
+		lvl_title.text += "  ·  %d seçim" % picks
 	lvl_title.add_theme_color_override("font_color", Color(1.0, 0.9, 0.45) if has_evo else ACCENT)
 	reroll_btn.text = "Yeniden çek  [R]   ×%d" % g.rerolls
 	reroll_btn.visible = g.rerolls > 0
@@ -746,7 +805,7 @@ func _card(c: Dictionary, i: int) -> Button:
 	var cur: int = g.weapons.level(id) if is_w else g.passives.get(id, 0)
 	var col: Color = d.get("color", TEAL)
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(360, 150)
+	b.custom_minimum_size = Vector2(380, 160)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.16, 0.11, 0.2, 0.97)
 	sb.set_corner_radius_all(14)
@@ -806,7 +865,11 @@ func _card(c: Dictionary, i: int) -> Button:
 	var key := _label(str(i + 1), 20, Color(1, 1, 1, 0.45))
 	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(key)
-	var txt: String = d["desc"] if kind == "e" or kind == "x" else Upgrades.level_text(id, cur + 1)
+	var txt: String = d["desc"]
+	if kind == "w":
+		txt = Upgrades.weapon_card(id, cur + 1)
+	elif kind == "p":
+		txt = Upgrades.passive_card(id, g.st)
 	var desc := _label(txt, 19)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc.custom_minimum_size.x = 220
@@ -1026,7 +1089,12 @@ func show_end(s: Dictionary) -> void:
 	again.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	again.pressed.connect(func(): g.restart())
 	outer.add_child(again)
-	again.grab_focus()
+	# Keys mashed in the last second of a run must not skip the summary.
+	again.disabled = true
+	get_tree().create_timer(1.2, true, false, true).timeout.connect(func():
+		if is_instance_valid(again):
+			again.disabled = false
+			again.grab_focus())
 
 ## Turkish style short numbers: 4,5 mn, 154 bin.
 func _big(v: float) -> String:

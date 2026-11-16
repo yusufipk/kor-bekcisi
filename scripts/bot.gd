@@ -2,6 +2,11 @@ extends Node
 ## Demo autopilot for testing (enabled by user://demo.cfg in debug builds only).
 ## Steers away from enemies, toward crystals, chests and unlit lanterns; jumps
 ## and slides when cornered; picks upgrades. Never writes the record file.
+##
+## `bot=circle`, `bot=flee` and `bot=tip` stand in for a first-time player instead: one runs
+## in a loop without looking, one only runs away from the crowd it sees, and one
+## follows the lantern tip and then loops inside the lantern's light.
+## Neither dodges, seeks lanterns or rerolls, and both pick cards at random.
 
 var g
 var pick_t := -1.0
@@ -24,6 +29,11 @@ func _process(dt: float) -> void:
 		pick_t -= rdt
 		if pick_t < 0.0 and pending.size() > 0:
 			# Evolutions first, then partner passives, then weapon upgrades.
+			if _naive():
+				var c = pending[randi() % pending.size()]
+				pending = []
+				g.choose(c)
+				return
 			var best = pending[0]
 			var score := -1.0
 			for c in pending:
@@ -48,11 +58,57 @@ func _process(dt: float) -> void:
 	if g.state == Game.S_END and g.demo_cfg.get("autoquit", false):
 		get_tree().quit()
 
+func _naive() -> bool:
+	return g.demo_cfg.get("bot", "smart") != "smart"
+
+## A newcomer: circles blindly, or runs from whatever crowd is in front of them.
+func _naive_steer(pp: Vector3, dt: float) -> Vector3:
+	var flat := Vector3(pp.x, 0, pp.z)
+	var steer := Vector3.ZERO
+	if g.demo_cfg.get("bot") == "circle":
+		var t: float = g.t
+		steer = Vector3(cos(t * 0.55), 0, sin(t * 0.55))
+	elif g.demo_cfg.get("bot") == "tip":
+		# Followed the one on-screen tip: lights the first lantern, then runs
+		# loops around it, inside its healing light.
+		var sp: Vector3 = g.shrines[0]["p"]
+		var to := Vector3(sp.x - pp.x, 0, sp.z - pp.z)
+		if not g.shrines[0]["lit"]:
+			steer = to.normalized() if to.length() > 1.5 else Vector3.ZERO
+		else:
+			var tang := Vector3(-to.z, 0, to.x).normalized()
+			steer = tang + to.normalized() * clampf((to.length() - 5.0) * 0.3, -1.0, 1.0)
+	else:
+		var away := Vector3.ZERO
+		for e in g.em.query(pp, 14.0):
+			if e.type == EnemyManager.CRYSTAL:
+				continue
+			var d: Vector3 = pp - e.pos
+			d.y = 0
+			away += d.normalized()
+		steer = away.normalized() if away.length() > 0.5 else Vector3(cos(g.t * 0.3), 0, sin(g.t * 0.3))
+		# Now and then a panicked jump, never a slide: the newcomer does not know it.
+		if away.length() > 4.0 and randf() < 0.01:
+			g.player.bot_jump = true
+	if flat.length() > g.world.island_radius - 6.0:
+		steer -= flat.normalized() * 1.5
+	return steer.normalized()
+
 func _physics_process(dt: float) -> void:
 	if g.state != Game.S_PLAY:
 		return
 	var p = g.player
 	var pp: Vector3 = p.global_position
+	if _naive():
+		var ns := _naive_steer(pp, dt)
+		var local := Basis(Vector3.UP, g.cam_yaw).inverse() * ns
+		p.bot_input = Vector2(local.x, local.z)
+		g.cam_yaw = lerp_angle(g.cam_yaw, atan2(-ns.x, -ns.z), dt * 0.8)
+		log_t += dt
+		if log_t > 10.0:
+			log_t = 0.0
+			print("BOT t=%d hp=%d lv=%d kills=%d alive=%d fps=%d" % [g.t, p.hp, g.level, g.kills, g.em.alive_count(), Engine.get_frames_per_second()])
+		return
 	var steer := Vector3.ZERO
 	var danger := 0.0
 	for e in g.em.query(pp, 9.0):

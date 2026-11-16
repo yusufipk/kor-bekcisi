@@ -34,6 +34,7 @@ var xp := 0.0
 var xp_next := 4.0
 var pending_levels := 0
 var pending_chest := 0
+var levelup_gap := 0.0       # level-ups that land soon after a card screen wait and batch up
 var kills := 0
 var stats_total_damage := 0.0
 var stats_damage_taken := 0.0
@@ -52,6 +53,8 @@ var weapon_damage := {}          # weapon id -> damage dealt this run
 var cur_chest := false           # the open card set came from a chest
 var dmg_src := ""                # set by Weapons around each hit
 var demo := false
+var end_ms := 0
+var mouse_ms := 0
 var demo_cfg := {}
 var prof := [0, 0, 0, 0, 0, 0]
 
@@ -86,6 +89,7 @@ var boss_intro_t := 0.0
 var crumble: Array = []      # enemies dissolving after the boss falls
 var cam_dist := 11.0
 var lamp: OmniLight3D
+var hero_ring: MeshInstance3D
 var dawn_k := 0.0
 
 # Director
@@ -164,11 +168,28 @@ func _on_settings_changed() -> void:
 	world.apply_brightness(Settings.brightness)
 
 func _load_demo_cfg() -> void:
+	if not OS.is_debug_build():
+		return
 	var c := ConfigFile.new()
-	if OS.is_debug_build() and c.load(DEMO_PATH) == OK and c.get_value("demo", "enabled", false):
+	if c.load(DEMO_PATH) == OK and c.get_value("demo", "enabled", false):
 		demo = true
 		for k in c.get_section_keys("demo"):
 			demo_cfg[k] = c.get_value("demo", k)
+	# Test runs can also pass the same keys after "--": `-- demo=1 bot=circle seed=3`.
+	for a in OS.get_cmdline_user_args():
+		var kv: PackedStringArray = a.split("=", true, 1)
+		if kv.size() != 2:
+			continue
+		var v = kv[1]
+		if v == "true" or v == "false":
+			v = v == "true"
+		elif v.is_valid_float():
+			v = float(v)
+		demo_cfg[kv[0]] = v
+	if demo_cfg.get("demo", 0.0) == 1.0:
+		demo = true
+	if demo and demo_cfg.has("seed"):
+		seed(int(demo_cfg["seed"]))
 
 # ---------------------------------------------------------------- setup
 
@@ -180,7 +201,7 @@ render_mode cull_disabled;
 uniform sampler2D tex : source_color, filter_linear_mipmap;
 uniform bool has_tex = false;
 uniform vec3 base_col : source_color = vec3(0.35, 0.28, 0.42);
-uniform vec3 rim_col : source_color = vec3(1.0, 0.25, 0.85);
+uniform vec3 rim_col : source_color = vec3(0.55, 0.42, 1.0);
 uniform float inner_glow = 0.0;
 global uniform float night;
 varying vec4 cd;
@@ -212,12 +233,14 @@ void fragment() {
 func _setup_enemy_visuals() -> void:
 	# type -> [file, height, yaw, rim colour]
 	var spec := {
-		EnemyManager.CRAWLER: ["bocek", 0.9, 0.0, Color(1.0, 0.3, 0.85)],
-		EnemyManager.MOTH: ["guve", 0.8, PI, Color(1.0, 0.35, 0.95)],
-		EnemyManager.BRUTE: ["hantal", 2.3, 0.0, Color(0.9, 0.3, 0.8)],
-		EnemyManager.SPITTER: ["tukurgec", 1.5, 0.0, Color(1.0, 0.45, 0.6)],
-		EnemyManager.KESE: ["kese", 1.3, 0.0, Color(1.0, 0.45, 0.25)],
-		EnemyManager.BOYNUZ: ["boynuz", 1.7, -PI * 0.5, Color(1.0, 0.25, 0.7)],
+		# The horde glows a cold violet, apart from the warm sky, the turquoise
+		# hero and the lava-orange boss. Keses keep a yellow fuse colour.
+		EnemyManager.CRAWLER: ["bocek", 0.9, 0.0, Color(0.55, 0.42, 1.0)],
+		EnemyManager.MOTH: ["guve", 0.8, PI, Color(0.6, 0.5, 1.0)],
+		EnemyManager.BRUTE: ["hantal", 2.3, 0.0, Color(0.5, 0.45, 0.95)],
+		EnemyManager.SPITTER: ["tukurgec", 1.5, 0.0, Color(0.45, 0.62, 1.0)],
+		EnemyManager.KESE: ["kese", 1.3, 0.0, Color(1.0, 0.72, 0.2)],
+		EnemyManager.BOYNUZ: ["boynuz", 1.7, -PI * 0.5, Color(0.75, 0.38, 1.0)],
 		EnemyManager.CRYSTAL: ["kristal", 1.8, 0.0, Color(1.0, 0.7, 0.25)],
 	}
 	var meshes := {}
@@ -275,6 +298,59 @@ func _setup_player() -> void:
 	player.add_child(lamp)
 	player.set_model(model, anim, names)
 	Models.fit_skinned(model, 1.75)
+	_hero_marks(model)
+
+## A turquoise outline and a ring at the feet keep the hero findable in any
+## light, among orange trees, a violet horde and a red ash sky alike.
+func _hero_marks(model: Node3D) -> void:
+	var osh := Shader.new()
+	osh.code = """
+shader_type spatial;
+render_mode unshaded, cull_front, shadows_disabled;
+uniform vec3 col : source_color = vec3(0.35, 1.0, 0.92);
+void vertex() {
+	vec3 wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// Grow with camera distance so the line keeps its width on screen.
+	float w = 0.009 * length(wp - CAMERA_POSITION_WORLD);
+	VERTEX += NORMAL * w / max(length(MODEL_MATRIX[0].xyz), 0.0001);
+}
+void fragment() {
+	ALBEDO = col;
+}
+"""
+	var om := ShaderMaterial.new()
+	om.shader = osh
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).material_overlay = om
+	var ring := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(2.6, 2.6)
+	q.orientation = PlaneMesh.FACE_Y
+	ring.mesh = q
+	var rsh := Shader.new()
+	rsh.code = """
+shader_type spatial;
+render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled;
+uniform vec3 col : source_color = vec3(0.3, 1.0, 0.9);
+void fragment() {
+	vec2 p = UV * 2.0 - 1.0;
+	float r = length(p);
+	float band = smoothstep(0.62, 0.72, r) * (1.0 - smoothstep(0.82, 0.92, r));
+	// Four slow notches turn around the ring so it reads as the hero's own.
+	float ang = atan(p.y, p.x) + TIME * 0.8;
+	float notch = 0.65 + 0.35 * step(0.0, sin(ang * 4.0));
+	ALBEDO = col * band * notch * 1.4;
+	ALPHA = 1.0;
+}
+"""
+	var rm := ShaderMaterial.new()
+	rm.shader = rsh
+	ring.material_override = rm
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Stays on the ground while the hero jumps.
+	ring.top_level = true
+	player.add_child(ring)
+	hero_ring = ring
 
 func _setup_camera() -> void:
 	cam_rig = Node3D.new()
@@ -283,7 +359,9 @@ func _setup_camera() -> void:
 	cam_rig.add_child(cam_pitch_node)
 	spring = SpringArm3D.new()
 	spring.spring_length = 11.0
-	spring.collision_mask = 2
+	# No arm collision: pulling in behind a tree or column dropped the camera to
+	# head height. Every prop fades when it stands between camera and hero instead.
+	spring.collision_mask = 0
 	spring.margin = 0.3
 	var sph := SphereShape3D.new()
 	sph.radius = 0.3
@@ -344,6 +422,7 @@ func start_run() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	ui.show_hud()
 	ui.hint("WASD koş  ·  Boşluk zıpla  ·  Shift kay  ·  Silahlar kendiliğinden ateş eder", 7.0)
+	toast("Öndeki ✦ fenerin yanında 2 saniye dur: yanınca güç verir, ışığı canını doldurur.", 7.0)
 	_play_music("early")
 	if demo and demo_cfg.has("start_time"):
 		var skip: float = demo_cfg["start_time"]
@@ -410,6 +489,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 	if ev is InputEventMouseMotion and state == S_PLAY and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var s := 0.0024 * Settings.mouse_sens
 		cam_yaw -= ev.relative.x * s
+		mouse_ms = Time.get_ticks_msec()
 		cam_pitch -= ev.relative.y * s * (-1.0 if Settings.invert_y else 1.0)
 		cam_pitch = clampf(cam_pitch, -1.25, -0.12)
 	if ev.is_action_pressed("pause"):
@@ -417,7 +497,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 			pause()
 		elif state == S_PAUSE:
 			resume()
-	if ev.is_action_pressed("restart") and state == S_END:
+	if ev.is_action_pressed("restart") and state == S_END and Time.get_ticks_msec() - end_ms > 1200:
 		restart()
 	if ev is InputEventMouseButton and ev.pressed and state == S_PLAY and not demo:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -453,22 +533,29 @@ func _process(dt: float) -> void:
 		return
 	if won:
 		dawn_k = minf(1.0, dawn_k + dt * 0.35)
-	elif (pending_levels > 0 or pending_chest > 0) and not player.dead and not _cinematic():
+	elif (pending_chest > 0 or (pending_levels > 0 and levelup_gap <= 0.0)) and not player.dead and not _cinematic():
 		_open_levelup(pending_chest > 0)
 		return
+	levelup_gap -= dt
 	world.update_time(t, dawn_k)
 	world.follow(player.global_position)
 	lamp.light_energy = 1.6 + world.night * 1.4
 	lamp.omni_range = 7.0 + world.night * 6.0
 	t += dt
+	if demo:
+		_demo_shots()
 	if demo and demo_cfg.has("pause_at") and t >= float(demo_cfg["pause_at"]) and not events_done.has("demo_pause"):
 		events_done["demo_pause"] = true
 		pause()
 		ui.hide_pause()  # demo freeze is for screenshots: keep the frame clean
 		return
-	enemy_dmg_mult = 1.0 + t / 450.0
+	# Contact damage starts at 75 % and reaches full strength at 3:00.
+	enemy_dmg_mult = (0.75 + 0.25 * minf(1.0, t / 180.0)) * (1.0 + t / 450.0)
 	# The late term answers evolutions: from about 5:30 the night horde hardens.
-	em.hp_mult = 1.0 + t / 220.0 + pow(t / 400.0, 2.0) + pow(maxf(0.0, t - 330.0) / 160.0, 2.2)
+	# Before 4:00 the linear term grows as a curve, so the starting bolt still
+	# kills a crawler in one shot for the first two minutes.
+	var lin := t / 220.0 if t >= 240.0 else pow(t / 240.0, 2.0) * 240.0 / 220.0
+	em.hp_mult = 1.0 + lin + pow(t / 400.0, 2.0) + pow(maxf(0.0, t - 330.0) / 160.0, 2.2)
 	var t0 := Time.get_ticks_usec()
 	_director(dt)
 	var t1 := Time.get_ticks_usec()
@@ -497,16 +584,55 @@ func _process(dt: float) -> void:
 			_end_run(true)
 	ui.update_hud()
 
+## Demo only: save frames at the run times listed in `shots` (seconds, comma
+## separated) into `shot_dir`, and quit at `quit_at`.
+var _shot_list: Array = []
+func _demo_shots() -> void:
+	if _shot_list.is_empty() and demo_cfg.has("shots") and not events_done.has("shots_parsed"):
+		events_done["shots_parsed"] = true
+		for s in str(demo_cfg["shots"]).split(",", false):
+			_shot_list.append(float(s))
+		_shot_list.sort()
+	if not _shot_list.is_empty() and t >= _shot_list[0]:
+		var at: float = _shot_list.pop_front()
+		var dir := str(demo_cfg.get("shot_dir", "user://shots"))
+		DirAccess.make_dir_recursive_absolute(dir)
+		var img := get_viewport().get_texture().get_image()
+		if img:
+			img.save_jpg("%s/t%03d.jpg" % [dir, int(at)], 0.85)
+			print("SHOT t=%d" % int(at))
+	if demo_cfg.has("quit_at") and t >= float(demo_cfg["quit_at"]):
+		print("DEMO_QUIT t=%.0f hp=%.0f lv=%d" % [t, player.hp, level])
+		get_tree().quit()
+
 func _update_camera(dt: float) -> void:
 	player.cam_yaw = cam_yaw
+	if hero_ring:
+		var hp3: Vector3 = player.global_position
+		hero_ring.global_position = Vector3(hp3.x, 0.07, hp3.z)
 	var target: Vector3 = player.global_position + Vector3(0, 1.6, 0)
-	cam_rig.position = cam_rig.position.lerp(target, minf(1.0, dt * 12.0))
+	var bs = em.boss
+	var boss_live: bool = bs != null and bs.alive and not won
+	if boss_live:
+		# Frame hero and giant together: the pivot leans toward the boss.
+		var to_b: Vector3 = bs.pos - player.global_position
+		to_b.y = 0
+		target += to_b.limit_length(20.0) * 0.3
+	cam_rig.position = cam_rig.position.lerp(target, minf(1.0, dt * 6.0 if boss_live else dt * 12.0))
 	cam_rig.rotation.y = cam_yaw
 	cam_pitch_node.rotation.x = cam_pitch
 	var rdt := dt / maxf(Engine.time_scale, 0.05)
 	var want := 11.0
-	if em.boss != null and em.boss.alive:
-		want = 14.5   # pull back so the giant fits in frame
+	if boss_live:
+		want = 12.5
+		# With the mouse at rest, turn slowly toward a boss that left the view,
+		# so a keyboard-only player never fights an off-screen giant.
+		if cam_look == null and Time.get_ticks_msec() - mouse_ms > 1500:
+			var tb: Vector3 = bs.pos - player.global_position
+			var yaw_b := atan2(-tb.x, -tb.z)
+			var diff := angle_difference(cam_yaw, yaw_b)
+			if absf(diff) > 0.9 and Vector2(tb.x, tb.z).length() > 4.0:
+				cam_yaw += clampf(diff, -rdt * 1.2, rdt * 1.2)
 	if evo_t > 0.0:
 		want = 6.5
 	cam_dist = lerpf(cam_dist, want, minf(1.0, rdt * 3.0))
@@ -552,7 +678,9 @@ func hitstop(d: float) -> void:
 # ---------------------------------------------------------------- director
 
 func _target_alive() -> float:
-	var pts := [[0.0, 8.0], [45.0, 24.0], [120.0, 55.0], [240.0, 110.0], [360.0, 190.0], [480.0, 280.0], [570.0, 360.0], [600.0, 380.0]]
+	# The first three minutes are tuned for someone who has never played: about
+	# 40 % fewer enemies, then the curve rejoins the old one by 5:00.
+	var pts := [[0.0, 6.0], [45.0, 14.0], [120.0, 33.0], [200.0, 70.0], [300.0, 150.0], [360.0, 190.0], [480.0, 280.0], [570.0, 360.0], [600.0, 380.0]]
 	for i in pts.size() - 1:
 		if t < pts[i + 1][0]:
 			var k: float = (t - pts[i][0]) / (pts[i + 1][0] - pts[i][0])
@@ -562,12 +690,13 @@ func _target_alive() -> float:
 func _pick_type() -> int:
 	var types := [EnemyManager.CRAWLER, EnemyManager.MOTH, EnemyManager.BRUTE, EnemyManager.SPITTER, EnemyManager.KESE, EnemyManager.BOYNUZ]
 	var w := [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-	if t > 50.0: w[1] = 0.45
-	if t > 140.0: w[2] = 0.10 + minf(t / 4000.0, 0.10)
+	# Moths are fast and stick to you: they arrive gradually from 1:15.
+	if t > 75.0: w[1] = lerpf(0.15, 0.45, clampf((t - 75.0) / 105.0, 0.0, 1.0))
+	if t > 170.0: w[2] = 0.10 + minf(t / 4000.0, 0.10)
 	if t > 230.0: w[3] = 0.14
 	if t > 160.0: w[4] = 0.10 + minf((t - 160.0) / 4000.0, 0.08)
 	# Chargers are a threat to read, not a crowd: keep only a few at a time.
-	if t > 260.0 and em.count_type(EnemyManager.BOYNUZ) < 3 + int(t / 150.0): w[5] = 0.05
+	if t > 300.0 and em.count_type(EnemyManager.BOYNUZ) < 3 + int(t / 150.0): w[5] = 0.05
 	var tot := 0.0
 	for x in w: tot += x
 	var r := randf() * tot
@@ -607,14 +736,15 @@ func _director(dt: float) -> void:
 	elite_t -= dt
 	if elite_t <= 0.0 and t < BOSS_TIME - 10.0:
 		elite_t = 70.0
-		var et := 0 if t < 150.0 else (2 if randf() < 0.6 else 3)
+		# Early elites are big crawlers; brutes and spitters wait for the serpent.
+		var et := 0 if t < 300.0 else (2 if randf() < 0.6 else 3)
 		em.spawn(et, _spawn_pos(18.0, 22.0), true)
 		toast("Parlayan bir düşman geliyor. Onu yen, sandık düşürür!")
 	# Chests on the map
 	chest_t -= dt
 	if chest_t <= 0.0:
 		chest_t = 55.0
-		if pickups.chests.size() < 2:
+		if pickups.chests.size() < 2 and not boss_spawned:
 			var p := _chest_spot()
 			pickups.spawn_chest(p, Models.prop(chest_model_path, 1.1))
 			toast("Adada bir sandık belirdi. Işık sütununu takip et!")
@@ -632,7 +762,6 @@ func _director(dt: float) -> void:
 	_event(480.0, "night_raid")
 	_event(290.0, "serpent_warn")
 	_event(300.0, "serpent")
-	_event(14.0, "tip_shrine")
 	_event(40.0, "tip_jump")
 	_event(270.0, "music_late")
 	_event(BOSS_TIME - 20.0, "boss_warn")
@@ -672,8 +801,6 @@ func _event(at: float, id: String) -> void:
 		var base := pp + Vector3(cos(a), 0, sin(a)) * 26.0
 		for i in 30 + int(t / 20.0):
 			em.spawn(1, base + Vector3(randf_range(-5, 5), 0, randf_range(-5, 5)))
-	elif id == "tip_shrine":
-		toast("✦ işaretli fenerin yanında 2 saniye dur: yanınca kalıcı güç verir.", 5.0)
 	elif id == "tip_jump":
 		toast("Sıkıştın mı? Shift ile kay, kayarken hasar almazsın.", 4.5)
 	elif id == "night_raid":
@@ -738,10 +865,23 @@ shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never;
 uniform float flash = 0.0;
 uniform float warn = 0.0;
+uniform float rage = 0.0;
+varying vec3 obj;
+void vertex() {
+	// World units, so the crack size does not depend on the model's import scale.
+	obj = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz - MODEL_MATRIX[3].xyz;
+}
 void fragment() {
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.0);
 	float pulse = 0.6 + 0.4 * sin(TIME * 30.0);
-	ALBEDO = vec3(1.0, 0.85, 0.8) * flash * 0.1 + vec3(1.0, 0.1, 0.05) * warn * pulse * 0.9 + vec3(1.0, 0.25, 0.6) * rim * 0.5;
+	// Lava cracks: thin bands where two warped sine fields cross zero.
+	vec3 q = obj * 0.9;
+	float a = sin(q.x * 2.1 + sin(q.y * 1.3 + TIME * 0.6) * 1.6 + q.z * 0.7);
+	float b = sin(q.z * 2.3 + sin(q.y * 1.7 - TIME * 0.5) * 1.4 - q.x * 0.6);
+	float crack = (1.0 - smoothstep(0.0, 0.16, abs(a))) + (1.0 - smoothstep(0.0, 0.12, abs(b)));
+	float throb = 0.75 + 0.25 * sin(TIME * (3.0 + rage * 4.0) + q.y);
+	vec3 lava = vec3(1.0, 0.42, 0.06) * clamp(crack, 0.0, 1.0) * throb * (0.9 + rage * 0.8);
+	ALBEDO = vec3(1.0, 0.85, 0.8) * flash * 0.1 + vec3(1.0, 0.1, 0.05) * warn * pulse * 0.9 + vec3(1.0, 0.5, 0.15) * rim * 0.55 + lava;
 }
 """
 	ov.shader = osh
@@ -751,13 +891,14 @@ void fragment() {
 		(mi as MeshInstance3D).material_overlay = ov
 	node.set_meta("overlay", ov)
 	var glow := OmniLight3D.new()
-	glow.light_color = Color(1.0, 0.35, 0.6)
+	glow.light_color = Color(1.0, 0.5, 0.15)
 	glow.light_energy = 3.0
 	glow.omni_range = 10.0
 	glow.position.y = 4.0
 	node.add_child(glow)
 	add_child(node)
 	em.boss_node = node
+	pickups.set_beams(false)
 	ui.show_boss_bar(true)
 	# Entrance: it rises out of the ground in slow motion, the camera turns to it
 	# and a shockwave clears the crowd around the hero.
@@ -783,7 +924,7 @@ void fragment() {
 	Sfx.play("quake", Vector3.INF, 1.0, 0.0)
 	Sfx.play("roar", Vector3.INF, 1.0, 0.0)
 	shake(0.9)
-	ui.banner("SON SAVAŞ", "Kül Devi", Color(1.0, 0.4, 0.5), 2.2)
+	ui.banner("SON SAVAŞ", "Kül Devi", Color(1.0, 0.55, 0.2), 2.2)
 
 ## Called by EnemyManager for the boss each frame. Returns a move speed factor.
 func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
@@ -863,7 +1004,7 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 			boss_attack_t -= dt
 			boss_warn = 1.0
 			if Engine.get_process_frames() % 4 == 0:
-				fx.burst(e.pos + Vector3(0, 3.0, 0), Color(1.0, 0.3, 0.5), 3, 1.0)
+				fx.burst(e.pos + Vector3(0, 3.0, 0), Color(1.0, 0.45, 0.1), 3, 1.0)
 			if boss_attack_t <= 0.0:
 				boss_state = "charge"
 				boss_attack_t = 1.1
@@ -1094,9 +1235,11 @@ func on_enemy_killed(e) -> void:
 		v *= 5
 	pickups.gem(e.pos, v)
 	var r := randf()
-	if r < 0.009 or e.elite:
+	# Fruit is common early, while a new player is still learning to dodge.
+	var fruit := lerpf(0.03, 0.009, clampf((t - 180.0) / 120.0, 0.0, 1.0))
+	if r < fruit or e.elite:
 		pickups.item(e.pos, "heal")
-	elif r < 0.012:
+	elif r < fruit + 0.003:
 		pickups.item(e.pos + Vector3(0.8, 0, 0), "magnet")
 	if e.elite or e.type == EnemyManager.BRUTE:
 		shake(0.15)
@@ -1108,7 +1251,7 @@ func add_xp(v: float) -> void:
 		level += 1
 		xp_next = xp_needed(level)
 		pending_levels += 1
-	if pending_levels > 0 and state == S_PLAY and not player.dead and not _cinematic():
+	if pending_levels > 0 and levelup_gap <= 0.0 and state == S_PLAY and not player.dead and not _cinematic():
 		_open_levelup(false)
 
 ## Early levels come quickly so the first minute already feels like growth.
@@ -1308,6 +1451,8 @@ func choose(c: Dictionary) -> void:
 		pending_levels = 0
 		pending_chest = 0
 	ui.hide_levelup()
+	# Several level-ups in quick succession open as one screen instead of five.
+	levelup_gap = 6.0
 	state = S_PLAY
 	get_tree().paused = false
 	if not demo:
@@ -1375,7 +1520,7 @@ func toast(msg: String, dur := 3.0) -> void:
 func _boss_death_fx(p: Vector3, step: int) -> void:
 	if step < 6:
 		var q := p + Vector3(randf_range(-2.5, 2.5), randf_range(2.0, 8.0), randf_range(-2.5, 2.5))
-		fx.burst(q, Color(1.0, 0.55, 0.85), 30, 2.6)
+		fx.burst(q, Color(1.0, 0.5, 0.15), 30, 2.6)
 		fx.burst(q, Color(1.0, 0.85, 0.5), 14, 2.0)
 		Sfx.play("explode", Vector3.INF, 0.9, 0.1, 0.8)
 		shake(0.35)
@@ -1384,7 +1529,7 @@ func _boss_death_fx(p: Vector3, step: int) -> void:
 	fx.pillar(p, Color(1.0, 0.8, 0.5))
 	fx.ring(p, 30.0, Color(1.0, 0.85, 0.5), 1.0, 0.2, 0.3)
 	for i in 8:
-		fx.burst(p + Vector3(randf_range(-3, 3), randf_range(1, 8), randf_range(-3, 3)), Color(1.0, 0.6, 0.85), 40, 3.2)
+		fx.burst(p + Vector3(randf_range(-3, 3), randf_range(1, 8), randf_range(-3, 3)), Color(1.0, 0.6, 0.25), 40, 3.2)
 	Sfx.play("slam", Vector3.INF, 1.0, 0.0)
 	Sfx.play("quake", Vector3.INF, 1.0, 0.0)
 	shake(1.0)
@@ -1409,6 +1554,7 @@ func _end_run(victory: bool) -> void:
 		return
 	victory = victory or won
 	state = S_END
+	end_ms = Time.get_ticks_msec()
 	Engine.time_scale = 1.0
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

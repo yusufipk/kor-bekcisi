@@ -16,7 +16,7 @@ const NOT_HORDE := [BOSS, CRYSTAL, SERPENT, SEG]
 var TYPES := [
 	{"name": "Kül Böceği", "hp": 9.0, "speed": 3.9, "dmg": 7.0, "xp": 1, "r": 0.55, "scale": 1.0, "fly": 0.0, "jump_safe": 0.9},
 	{"name": "Kül Güvesi", "hp": 6.0, "speed": 6.4, "dmg": 5.0, "xp": 1, "r": 0.5, "scale": 1.0, "fly": 1.1, "jump_safe": 2.6},
-	{"name": "Taş Hantal", "hp": 60.0, "speed": 2.5, "dmg": 14.0, "xp": 6, "r": 1.1, "scale": 1.0, "fly": 0.0, "jump_safe": 2.0},
+	{"name": "Taş Hantal", "hp": 60.0, "speed": 2.5, "dmg": 11.0, "xp": 6, "r": 1.1, "scale": 1.0, "fly": 0.0, "jump_safe": 2.0},
 	{"name": "Kor Tükürgeci", "hp": 26.0, "speed": 3.2, "dmg": 8.0, "xp": 3, "r": 0.7, "scale": 1.0, "fly": 0.0, "jump_safe": 1.2},
 	{"name": "Kül Devi", "hp": 26000.0, "speed": 3.0, "dmg": 22.0, "xp": 0, "r": 2.6, "scale": 1.0, "fly": 0.0, "jump_safe": 99.0},
 	{"name": "Kor Kesesi", "hp": 18.0, "speed": 5.4, "dmg": 6.0, "xp": 3, "r": 0.7, "scale": 1.0, "fly": 0.0, "jump_safe": 1.1},
@@ -101,9 +101,10 @@ func setup(meshes: Dictionary, mats: Dictionary) -> void:
 	sph.rings = 4
 	var smat := StandardMaterial3D.new()
 	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	smat.albedo_color = Color(1.0, 0.3, 0.9)
+	# Hot red-orange: projectiles read as danger against the violet horde.
+	smat.albedo_color = Color(1.0, 0.38, 0.12)
 	smat.emission_enabled = true
-	smat.emission = Color(1.0, 0.2, 0.8)
+	smat.emission = Color(1.0, 0.28, 0.06)
 	smat.emission_energy_multiplier = 3.0
 	sph.material = smat
 	bm.mesh = sph
@@ -279,7 +280,7 @@ func _kill(e) -> void:
 		g.serpent.on_killed()
 		return
 	var col := Color(0.55, 0.35, 0.8)
-	if e.type == SPITTER: col = Color(0.95, 0.3, 0.65)
+	if e.type == SPITTER: col = Color(0.5, 0.6, 1.0)
 	if e.type == BRUTE: col = Color(0.6, 0.55, 0.7)
 	var y: float = 0.6 + TYPES[e.type]["fly"]
 	g.fx.burst(e.pos + Vector3(0, y, 0), col, 8 if not e.elite else 30, 1.0 if not e.elite else 2.2)
@@ -453,7 +454,9 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 			e.yaw = lerp_angle(e.yaw, atan2(dx, dz), minf(1.0, dt * 8.0))
 		# Contact damage; jumping clears low enemies.
 		if dist < r + 0.45 and py < e.jump_safe:
-			player.hurt(e.dmg * e.dmg_mult * g.enemy_dmg_mult, e.pos)
+			# The biter bounces off, so one body cannot pin the hero against a wall.
+			if player.hurt(e.dmg * e.dmg_mult * g.enemy_dmg_mult, e.pos) and e.type != BOSS:
+				e.vel -= Vector3(dx, 0, dz) * (7.0 if e.elite else 11.0)
 		# Recycle stragglers far behind so pressure stays on the player.
 		if dist > 46.0 and e.type != BOSS:
 			var ang := randf() * TAU
@@ -475,6 +478,7 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 			if ov:
 				ov.set_shader_parameter("flash", e.flash)
 				ov.set_shader_parameter("warn", g.boss_warn)
+				ov.set_shader_parameter("rage", float(g.boss_phase - 1) * 0.5)
 	# Rebuilt after movement so weapon queries this frame see current positions.
 	_rebuild_grid()
 	for ti in mm.keys():
@@ -574,7 +578,7 @@ func _explode(e, harm_player: bool) -> void:
 	var p: Vector3 = e.pos
 	g.fx.ring(p, KESE_R, Color(1.0, 0.45, 0.2), 0.3, 0.45, 0.2)
 	g.fx.burst(p + Vector3(0, 0.6, 0), Color(1.0, 0.5, 0.15), 14, 1.6)
-	g.fx.burst(p + Vector3(0, 0.6, 0), Color(1.0, 0.25, 0.6), 8, 1.2)
+	g.fx.burst(p + Vector3(0, 0.6, 0), Color(1.0, 0.8, 0.3), 8, 1.2)
 	Sfx.play("explode", p, 0.8)
 	g.shake(0.08)
 	if harm_player:

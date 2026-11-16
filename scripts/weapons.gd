@@ -122,10 +122,6 @@ func add_weapon(id: String) -> void:
 	if not cd.has(id):
 		cd[id] = 0.3
 
-## Awakening: a weapon at max level hits 40 % harder.
-func _aw(l: int) -> float:
-	return 1.4 if l >= Upgrades.WEAPON_MAX else 1.0
-
 func _boss_in_range(pp: Vector3, r: float) -> bool:
 	var b = em.boss
 	return b != null and b.alive and Vector2(b.pos.x - pp.x, b.pos.z - pp.z).length() < r
@@ -176,9 +172,10 @@ func _fire(id: String, l: int, player, st) -> float:
 		"bolt":
 			if l >= EVO:
 				return _fire_lances(pp, player, st)
-			var n = 1 + int(l >= 2) + int(l >= 5) + 2 * int(l >= 7) + st.amount
-			var dmg := 11.0 * (1.3 if l >= 3 else 1.0) * _aw(l)
-			var pierce := int(l >= 4) + int(l >= 7)
+			var ws := Upgrades.wstats("bolt", l)
+			var n = int(ws["n"]) + st.amount
+			var dmg: float = ws["dmg"]
+			var pierce: int = ws["pierce"]
 			var used: Array = []
 			var boss_live: bool = _boss_in_range(pp, 26.0)
 			for i in n:
@@ -198,13 +195,14 @@ func _fire(id: String, l: int, player, st) -> float:
 				dir = dir.normalized()
 				bolts.append({"p": pp + Vector3(0, 1.1, 0), "v": dir * 26.0, "life": 1.1, "dmg": dmg, "pierce": pierce, "hit": []})
 			Sfx.play("shoot", pp, 0.35)
-			return 0.78 * (0.8 if l >= 6 else 1.0) * st.cd
+			return float(ws["cd"]) * st.cd
 		"chain":
 			if l >= EVO:
 				return _fire_storm(pp, st)
-			var strikes := 1 + int(l >= 5) + int(st.amount > 0)
-			var hops := 3 + 2 * int(l >= 2) + 3 * int(l >= 6)
-			var dmg := 16.0 * (1.35 if l >= 3 else 1.0) * (1.5 if l >= 7 else 1.0) * _aw(l)
+			var ws := Upgrades.wstats("chain", l)
+			var strikes := int(ws["n"]) + int(st.amount > 0)
+			var hops: int = ws["hops"]
+			var dmg: float = ws["dmg"]
 			var fired := false
 			for s in strikes:
 				var first = em.nearest(pp, 16.0 * st.area_range, [])
@@ -234,18 +232,20 @@ func _fire(id: String, l: int, player, st) -> float:
 					cur = em.nearest(cur.pos, 7.0 * st.area, hit)
 			if fired:
 				Sfx.play("zap", pp, 0.5)
-			return 1.5 * (0.75 if l >= 4 else 1.0) * st.cd
+			return float(ws["cd"]) * st.cd
 		"nova":
-			var waves := 2 if l >= 6 else 1
+			var ws := Upgrades.wstats("nova", l)
+			var waves: int = ws["n"]
 			for w in waves:
 				_nova(pp, l, st, w * 0.25)
 			if l >= EVO:
 				return 1.7 * st.cd
-			return 3.2 * (0.75 if l >= 4 else 1.0) * st.cd
+			return float(ws["cd"]) * st.cd
 		"blade":
 			if l >= EVO:
 				return 999.0  # tornados run continuously in _update_tornados
-			var n = 1 + int(l >= 2) + int(l >= 5) + 2 * int(l >= 7) + st.amount
+			var ws := Upgrades.wstats("blade", l)
+			var n = int(ws["n"]) + st.amount
 			var base_dir := Vector3(sin(player.facing), 0, cos(player.facing))
 			if player.velocity.length() < 1.0:
 				var tgt = em.nearest(pp, 20.0, [])
@@ -253,15 +253,16 @@ func _fire(id: String, l: int, player, st) -> float:
 					base_dir = (tgt.pos - pp).normalized()
 			for i in n:
 				var dir := base_dir.rotated(Vector3.UP, (i - (n - 1) * 0.5) * (TAU / maxf(n, 3.0)))
-				var rng = 9.0 * (1.35 if l >= 4 else 1.0) * st.area_range
-				var dmg := 20.0 * (1.3 if l >= 3 else 1.0) * (1.4 if l >= 6 else 1.0) * _aw(l)
+				var rng = float(ws["r"]) * st.area_range
+				var dmg: float = ws["dmg"]
 				blades.append({"p": pp + Vector3(0, 1.0, 0), "dir": dir, "t": 0.0, "range": rng, "dmg": dmg, "hit": {}})
 			Sfx.play("whoosh", pp, 0.45)
-			return 1.9 * st.cd
+			return float(ws["cd"]) * st.cd
 		"meteor":
 			if l >= EVO:
 				return _fire_stars(pp, st)
-			var n = 1 + int(l >= 2) + int(l >= 5) + 2 * int(l >= 7) + st.amount
+			var ws := Upgrades.wstats("meteor", l)
+			var n = int(ws["n"]) + st.amount
 			for i in n:
 				var near := em.query(pp, 18.0)
 				var target: Vector3
@@ -271,11 +272,11 @@ func _fire(id: String, l: int, player, st) -> float:
 					target = near[randi() % near.size()].pos
 				else:
 					target = pp + Vector3(randf_range(-10, 10), 0, randf_range(-10, 10))
-				var r = 3.2 * (1.35 if l >= 3 else 1.0) * st.area
-				var dmg := 42.0 * (1.5 if l >= 6 else 1.0) * _aw(l)
+				var r = float(ws["r"]) * st.area
+				var dmg: float = ws["dmg"]
 				fx.telegraph(target, r, 0.55 + i * 0.12)
 				meteors.append({"target": target, "t": 0.55 + i * 0.12, "dmg": dmg, "r": r, "node": _meteor_node()})
-			return 2.6 * (0.75 if l >= 4 else 1.0) * st.cd
+			return float(ws["cd"]) * st.cd
 		"orbit", "trail":
 			return 999.0
 	return 1.0
@@ -286,8 +287,9 @@ func _nova(pp: Vector3, l: int, st, delay: float) -> void:
 		get_tree().create_timer(delay, false).timeout.connect(_nova_later.bind(l))
 		return
 	var evo := l >= EVO
-	var r = 5.5 * (1.25 if l >= 2 else 1.0) * (1.25 if l >= 5 else 1.0) * (1.5 if evo else 1.0) * st.area
-	var dmg := 22.0 * (1.4 if l >= 3 else 1.0) * (1.6 if l >= 7 else 1.0) * (1.5 if evo else 1.0) * _aw(l)
+	var ws := Upgrades.wstats("nova", l)
+	var r = float(ws["r"]) * (1.5 if evo else 1.0) * st.area
+	var dmg := float(ws["dmg"]) * (1.5 if evo else 1.0)
 	if evo:
 		fx.ring(pp, r, Color(1.0, 0.6, 0.15), 0.45, 0.25, 0.3)
 		fx.ring(pp, r * 0.6, Color(1.0, 0.3, 0.1), 0.35, 0.1, 0.15)
@@ -407,8 +409,9 @@ func _update_orbit(dt: float, pp: Vector3, st) -> void:
 	var l := level("orbit")
 	var evo := l >= EVO
 	var per := 0
+	var ws := Upgrades.wstats("orbit", maxi(l, 1))
 	if l > 0:
-		per = 2 + int(l >= 2) + int(l >= 5) + 2 * int(l >= 7) + st.amount
+		per = int(ws["n"]) + st.amount
 	var n := per * (2 if evo else 1)
 	while orbit_nodes.size() < n:
 		var mi := MeshInstance3D.new()
@@ -426,9 +429,9 @@ func _update_orbit(dt: float, pp: Vector3, st) -> void:
 		orbit_nodes[j].visible = j < n
 	if n == 0:
 		return
-	var radius = 3.0 * (1.3 if l >= 4 else 1.0) * st.area
-	var speed := 3.2 * (1.35 if l >= 4 else 1.0)
-	var dmg := 9.0 * (1.3 if l >= 3 else 1.0) * (1.4 if l >= 6 else 1.0) * (1.6 if evo else 1.0) * _aw(l)
+	var radius = float(ws["r"]) * st.area
+	var speed: float = ws["spin"]
+	var dmg := float(ws["dmg"]) * (1.6 if evo else 1.0)
 	orbit_angle += speed * dt
 	if evo:
 		orbit_pulse -= dt
@@ -468,15 +471,16 @@ func _update_trail(dt: float, player, st) -> void:
 		if trail_drop <= 0.0 and (moved or evo) and player.is_on_floor():
 			trail_drop = 0.12 if moved else 0.35
 			last_trail_pos = pp
-			var r = 1.25 * (1.25 if l >= 4 else 1.0) * (1.7 if evo else 1.0) * st.area
-			var life := 2.2 * (1.4 if l >= 3 else 1.0) * (1.4 if l >= 6 else 1.0) * (1.6 if evo else 1.0)
+			var tws := Upgrades.wstats("trail", l)
+			var r = float(tws["r"]) * (1.7 if evo else 1.0) * st.area
+			var life := float(tws["life"]) * (1.6 if evo else 1.0)
 			if patches.size() < 250:
 				patches.append({"p": Vector3(pp.x, 0.06, pp.z), "life": life, "max": life, "r": r})
 	patch_tick -= dt
 	var do_tick := patch_tick <= 0.0
 	if do_tick:
 		patch_tick = 0.1
-	var dmg := 7.0 * (1.4 if l >= 2 else 1.0) * (1.5 if l >= 5 else 1.0) * (1.6 if l >= 7 else 1.0) * (1.3 if evo else 1.0) * _aw(l)
+	var dmg := float(Upgrades.wstats("trail", maxi(l, 1))["dmg"]) * (1.3 if evo else 1.0)
 	var m := patch_mm.multimesh
 	var i := 0
 	var n := 0
@@ -526,7 +530,7 @@ func _meteor_node() -> MeshInstance3D:
 	sp.height = 1.4
 	sp.radial_segments = 8
 	sp.rings = 4
-	sp.material = _glow(Color(1.0, 0.55, 0.85), 5.0)
+	sp.material = _glow(Color(1.0, 0.7, 0.35), 5.0)
 	mi.mesh = sp
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
@@ -546,8 +550,8 @@ func _update_meteors(dt: float) -> void:
 			nd.visible = false
 			if mt.get("star", false):
 				fx.ring(tg, mt["r"], Color(0.85, 0.75, 1.0), 0.3, 0.35, 0.2)
-			fx.ring(tg, mt["r"], Color(1.0, 0.5, 0.8), 0.35, 0.3, 0.2)
-			fx.burst(tg + Vector3(0, 0.4, 0), Color(1.0, 0.5, 0.85), 14, 1.6)
+			fx.ring(tg, mt["r"], Color(1.0, 0.7, 0.35), 0.35, 0.3, 0.2)
+			fx.burst(tg + Vector3(0, 0.4, 0), Color(1.0, 0.75, 0.4), 14, 1.6)
 			fx.burst(tg + Vector3(0, 0.4, 0), Color(1.0, 0.8, 0.4), 8, 1.2)
 			Sfx.play("meteor", tg, 0.55)
 			Game.inst.shake(0.12)

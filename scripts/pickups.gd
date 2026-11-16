@@ -2,7 +2,8 @@ class_name Pickups
 extends Node3D
 ## XP crystals (one MultiMesh), heal fruit, magnets and treasure chests.
 
-const MAX_GEMS := 900
+# Past the cap new XP folds into existing crystals, which grow and change colour.
+const MAX_GEMS := 400
 var g_pos := PackedVector3Array()
 var g_val := PackedInt32Array()
 var g_fly := PackedByteArray()
@@ -12,7 +13,9 @@ var gem_mm: MultiMeshInstance3D
 var items: Array = []    # {node, kind, p}
 var chests: Array = []   # Node3D with meta
 var chest_scene: Node3D = null
+var beams_on := true
 var pickup_combo := 0
+const SCALE := [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24]
 var combo_t := 0.0
 
 func _ready() -> void:
@@ -29,6 +32,13 @@ func _ready() -> void:
 	sh.code = """
 shader_type spatial;
 render_mode unshaded;
+void vertex() {
+	// Idle bob and spin run here, so the CPU only moves crystals in flight.
+	float ph = float(INSTANCE_ID);
+	float a = TIME * 2.0 + ph;
+	VERTEX.xz = mat2(vec2(cos(a), sin(a)), vec2(-sin(a), cos(a))) * VERTEX.xz;
+	VERTEX.y += sin(TIME * 3.0 + ph) * 0.08 / max(length(MODEL_MATRIX[1].xyz), 0.01);
+}
 void fragment() {
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.0);
 	ALBEDO = COLOR.rgb * (1.1 + rim * 1.2);
@@ -51,6 +61,7 @@ func gem(p: Vector3, value: int) -> void:
 		# Fold into an existing gem so XP is never lost.
 		var k := randi() % g_count
 		g_val[k] += value
+		_draw_gem(k)
 		return
 	var i := g_count
 	g_count += 1
@@ -58,6 +69,21 @@ func gem(p: Vector3, value: int) -> void:
 	g_val[i] = value
 	g_fly[i] = 0
 	g_spd[i] = 0.0
+	_draw_gem(i)
+	gem_mm.multimesh.visible_instance_count = g_count
+
+## Write one crystal's transform and colour; bigger values look bigger.
+func _draw_gem(i: int) -> void:
+	var v := g_val[i]
+	var c := Color(1.0, 0.82, 0.25)
+	var s := 1.0
+	if v >= 20:
+		c = Color(1.0, 0.35, 0.85); s = 1.8
+	elif v >= 5:
+		c = Color(0.35, 0.95, 1.0); s = 1.35
+	var m := gem_mm.multimesh
+	m.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ONE * s), g_pos[i]))
+	m.set_instance_color(i, c)
 
 func magnet_all() -> void:
 	for i in g_count:
@@ -126,6 +152,9 @@ func spawn_chest(p: Vector3, model: Node3D) -> void:
 	bmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	beam.material_override = bmat
 	beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	beam.name = "beam"
+	# No beams in the boss fight: the arena belongs to the giant.
+	beam.visible = beams_on
 	root.add_child(beam)
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.8, 0.4)
@@ -136,6 +165,13 @@ func spawn_chest(p: Vector3, model: Node3D) -> void:
 	add_child(root)
 	chests.append(root)
 
+func set_beams(on: bool) -> void:
+	beams_on = on
+	for ch in chests:
+		var b: Node3D = ch.get_node_or_null("beam")
+		if b:
+			b.visible = on
+
 func update(dt: float, player) -> void:
 	var g = Game.inst
 	var pp: Vector3 = player.global_position
@@ -145,7 +181,6 @@ func update(dt: float, player) -> void:
 	if combo_t <= 0.0:
 		pickup_combo = 0
 	var m := gem_mm.multimesh
-	var t := Time.get_ticks_msec() * 0.001
 	var i := 0
 	while i < g_count:
 		var p := g_pos[i]
@@ -162,24 +197,18 @@ func update(dt: float, player) -> void:
 				g.add_xp(g_val[i])
 				pickup_combo += 1
 				combo_t = 0.4
-				# Pitch climbs with a pickup streak.
-				Sfx.play("pickup", Vector3.INF, 0.8, 0.0, 1.0 + minf(pickup_combo, 24) * 0.035)
+				# A streak climbs a pentatonic scale, two pickups per step.
+				var step: int = SCALE[mini(pickup_combo / 2, SCALE.size() - 1)]
+				Sfx.play("pickup", Vector3.INF, 0.8, 0.0, pow(2.0, step / 12.0))
 				var last := g_count - 1
 				g_pos[i] = g_pos[last]; g_val[i] = g_val[last]; g_fly[i] = g_fly[last]; g_spd[i] = g_spd[last]
 				g_count -= 1
+				if i < g_count:
+					_draw_gem(i)
 				continue
 			p += to / l * g_spd[i] * dt
 			g_pos[i] = p
-		var v := g_val[i]
-		var c := Color(1.0, 0.82, 0.25)
-		var s := 1.0
-		if v >= 20:
-			c = Color(1.0, 0.35, 0.85); s = 1.8
-		elif v >= 5:
-			c = Color(0.35, 0.95, 1.0); s = 1.35
-		var bob := sin(t * 3.0 + i) * 0.08
-		m.set_instance_transform(i, Transform3D(Basis(Vector3.UP, t * 2.0 + i).scaled(Vector3.ONE * s), p + Vector3(0, bob, 0)))
-		m.set_instance_color(i, c)
+			_draw_gem(i)
 		i += 1
 	m.visible_instance_count = g_count
 	var j := 0
@@ -189,7 +218,13 @@ func update(dt: float, player) -> void:
 		it["t"] += dt
 		n.position.y = 0.8 + sin(it["t"] * 3.0) * 0.15
 		n.rotate_y(dt * 2.0)
-		var near: bool = Vector2(n.position.x - pp.x, n.position.z - pp.z).length() < 1.4 + (mr * 0.3)
+		var fd := Vector2(n.position.x - pp.x, n.position.z - pp.z).length()
+		# Fruit and magnets drift to you from a little past the crystal reach,
+		# so a player who is busy running still picks them up.
+		if fd < mr + 3.0 and fd > 0.01:
+			var pull := Vector3(pp.x - n.position.x, 0, pp.z - n.position.z) / fd
+			n.position += pull * minf(fd, dt * 9.0)
+		var near: bool = fd < 1.4 + (mr * 0.3)
 		if near:
 			if it["kind"] == "heal":
 				player.heal(35.0)

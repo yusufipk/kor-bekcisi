@@ -24,7 +24,7 @@ var _fx_draw: StandardMaterial3D
 const KEYS := [
 	[0.0,   Color(0.36, 0.47, 0.86), Color(1.0, 0.80, 0.64), Color(0.55, 0.45, 0.66), Color(1.0, 0.88, 0.72), 1.5, -46.0, 0.0, Color(0.85, 0.82, 0.95), 0.62, 0.0, 0.0, 0.0],
 	[200.0, Color(0.42, 0.40, 0.78), Color(1.0, 0.66, 0.48), Color(0.55, 0.40, 0.60), Color(1.0, 0.76, 0.52), 1.4, -26.0, 0.0, Color(0.95, 0.78, 0.82), 0.6, 0.0, 0.0, 0.0],
-	[330.0, Color(0.30, 0.22, 0.52), Color(1.0, 0.46, 0.30), Color(0.45, 0.28, 0.45), Color(1.0, 0.55, 0.32), 1.15, -9.0, 0.0, Color(0.95, 0.66, 0.70), 0.55, 0.05, 0.15, 0.0],
+	[330.0, Color(0.30, 0.22, 0.52), Color(1.0, 0.46, 0.30), Color(0.45, 0.28, 0.45), Color(1.0, 0.55, 0.32), 1.15, -9.0, 0.0, Color(0.95, 0.72, 0.58), 0.55, 0.05, 0.15, 0.0],
 	[420.0, Color(0.10, 0.10, 0.28), Color(0.52, 0.30, 0.46), Color(0.20, 0.15, 0.30), Color(0.9, 0.45, 0.35), 0.25, -2.0, 0.35, Color(0.55, 0.55, 0.85), 0.5, 0.5, 0.6, 0.0],
 	[500.0, Color(0.03, 0.04, 0.13), Color(0.16, 0.16, 0.36), Color(0.07, 0.07, 0.16), Color(0.9, 0.45, 0.35), 0.0, -2.0, 0.6, Color(0.42, 0.48, 0.88), 0.44, 1.0, 1.0, 0.0],
 	[575.0, Color(0.03, 0.04, 0.13), Color(0.16, 0.16, 0.36), Color(0.07, 0.07, 0.16), Color(0.9, 0.45, 0.35), 0.0, -2.0, 0.6, Color(0.42, 0.48, 0.88), 0.44, 1.0, 1.0, 0.0],
@@ -364,11 +364,14 @@ func _add_obstacle(node: Node3D, p: Vector3, r: float, h: float) -> void:
 	obstacles.append([Vector2(p.x, p.z), r])
 
 func _props() -> void:
-	# Shrines on a ring, so every direction has something to run to.
+	# The first lantern stands in view of the start (the camera looks down -Z), so
+	# a new player lights it in the first minute; the rest ring the island.
 	for i in 5:
 		var a := TAU * i / 5.0 + 0.4
 		var r := 34.0 + (i % 2) * 8.0
 		var p := Vector3(cos(a) * r, 0, sin(a) * r)
+		if i == 0:
+			p = Vector3(3.0, 0, -13.0)
 		shrine_spots.append(p)
 		obstacles.append([Vector2(p.x, p.z), 0.9])
 	for i in 22:
