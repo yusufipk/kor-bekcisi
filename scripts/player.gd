@@ -181,7 +181,7 @@ func hurt(dmg: float, from: Vector3) -> void:
 	if is_invulnerable():
 		return
 	var g = Game.inst
-	if g.state != Game.S_PLAY:
+	if g.state != Game.S_PLAY or g.won:
 		return
 	hp -= dmg * g.st.armor
 	invuln_t = 0.7

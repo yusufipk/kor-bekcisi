@@ -11,6 +11,8 @@ var rng := RandomNumberGenerator.new()
 
 const M := "res://art/models/"
 
+static var _globals_added := false
+
 func build() -> void:
 	rng.seed = 7331
 	_environment()
@@ -22,8 +24,11 @@ func build() -> void:
 var fade_shader: Shader
 
 func _environment() -> void:
-	RenderingServer.global_shader_parameter_add("player_screen", RenderingServer.GLOBAL_VAR_TYPE_VEC2, Vector2(0.5, 0.5))
-	RenderingServer.global_shader_parameter_add("player_depth", RenderingServer.GLOBAL_VAR_TYPE_FLOAT, 12.0)
+	# Globals survive scene reloads (and so does this static), so add them once.
+	if not _globals_added:
+		_globals_added = true
+		RenderingServer.global_shader_parameter_add("player_screen", RenderingServer.GLOBAL_VAR_TYPE_VEC2, Vector2(0.5, 0.5))
+		RenderingServer.global_shader_parameter_add("player_depth", RenderingServer.GLOBAL_VAR_TYPE_FLOAT, 12.0)
 	fade_shader = Shader.new()
 	fade_shader.code = """
 shader_type spatial;

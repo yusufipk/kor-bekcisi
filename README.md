@@ -35,4 +35,10 @@ Higgsfield'da harcanan toplam: **283,79 kredi** (tavan 1.200). Başarısız dön
 
 ## Bilinen zayıf noktalar
 
-YAZILACAK
+- Denge yalnızca otomatik pilotla ayarlandı, insanla test edilmedi. Kart şansı turdan tura çok fark yaratıyor; bazı turlar 7. dakikadan sonra fazla kolaylaşıyor.
+- Performans ağır yüklü bir makinede ölçüldü, o yüzden FPS sayıları güvenilir değil. Düşman mantığı düşman başına yaklaşık 12 µs tutuyor; 300'ü aşan kalabalıkta zayıf bir makinede kare düşebilir.
+- Boss'un dört saldırısı ve %50'de tek bir öfke evresi var. Canı ilk saniyelerde vurulan hasara göre ayarlanıyor, bu yüzden dövüş süresi yapıya göre yaklaşık bir ile iki dakika arasında oynuyor.
+- Kayma klibi yere yatan bir kayış değil, çömelme. Kahramanın yüz ifadesi yok, fener modeli hafif eğik duruyor, Tükürgeç ile Hantal'ın silüetleri birbirine benziyor.
+- Efektlerin çoğu çok sessiz üretildi ve 40 dB'e kadar yükseltildi; bazılarında hafif bir zemin gürültüsü duyulabilir. Seviye ve kayma sesleri kodla üretiliyor. Geç tur müziğinin 70. saniyesinde kısa bir müzikal iniş var.
+- Gamepad desteği yok.
+- Depoda `addons/beckett` yok, bu yüzden temiz bir kopyada Godot açılışta eksik bir autoload için hata mesajı basar; oyun yine çalışır.

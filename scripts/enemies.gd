@@ -210,7 +210,9 @@ func damage(e, amount: float, knock: Vector3 = Vector3.ZERO, crit := false, flas
 	if e.type == BOSS: weight = 60.0
 	e.vel += knock / weight
 	var g = Game.inst
-	g.fx.damage_number(e.pos + Vector3(0, 1.5 + TYPES[e.type]["fly"] + (3.0 if e.type == BOSS else 0.0), 0), amount, crit)
+	# Damage-over-time ticks skip the floating number to keep the screen readable.
+	if flash >= 1.0 or crit:
+		g.fx.damage_number(e.pos + Vector3(0, 1.5 + e.fly + (3.0 if e.type == BOSS else 0.0), 0), amount, crit)
 	g.stats_total_damage += dealt
 	if e.type == BOSS:
 		g.on_boss_hit(dealt)
@@ -240,7 +242,6 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 			enemies.pop_back()
 		else:
 			i += 1
-	_rebuild_grid()
 	var g = Game.inst
 	var t := Time.get_ticks_msec() * 0.001
 	var counts := [0, 0, 0, 0]
@@ -272,10 +273,10 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 				if e.shoot_t <= 0.0 and dist < 16.0:
 					e.shoot_t = randf_range(2.6, 3.6)
 					var bv := Vector3(dx, 0, dz) * 7.0
-					bullets.append([e.pos + Vector3(0, 1.0, 0), bv, 4.0])
+					add_bullet(e.pos + Vector3(0, 1.0, 0), bv, 4.0)
 					if e.elite:
-						bullets.append([e.pos + Vector3(0, 1.0, 0), bv.rotated(Vector3.UP, 0.3), 4.0])
-						bullets.append([e.pos + Vector3(0, 1.0, 0), bv.rotated(Vector3.UP, -0.3), 4.0])
+						add_bullet(e.pos + Vector3(0, 1.0, 0), bv.rotated(Vector3.UP, 0.3), 4.0)
+						add_bullet(e.pos + Vector3(0, 1.0, 0), bv.rotated(Vector3.UP, -0.3), 4.0)
 			BOSS:
 				var f: float = g.boss_ai(e, dt, dist, dx, dz)
 				mx *= f
@@ -293,7 +294,7 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 					if a == null:
 						continue
 					for o in a:
-						if o == e:
+						if o == e or not o.alive:
 							continue
 						var ex: float = e.pos.x - o.pos.x
 						var ez: float = e.pos.z - o.pos.z
@@ -360,6 +361,8 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 			if ov:
 				ov.set_shader_parameter("flash", e.flash)
 				ov.set_shader_parameter("warn", g.boss_warn)
+	# Rebuilt after movement so weapon queries this frame see current positions.
+	_rebuild_grid()
 	for ti in range(4):
 		var m: MultiMesh = mm[ti].multimesh
 		m.visible_instance_count = counts[ti]
@@ -398,6 +401,14 @@ func _write(b: PackedFloat32Array, idx: int, e, d: Dictionary, t: float) -> void
 	b[o + 13] = 1.0 if e.elite else 0.0
 	b[o + 14] = 1.0 if e.slow_t > 0.0 else 0.0
 	b[o + 15] = e.phase
+
+const MAX_BULLETS := 300
+
+## Every live bullet is drawn: the pool cap and the draw cap are the same, so
+## nothing can hit the player unseen.
+func add_bullet(p: Vector3, v: Vector3, life: float) -> void:
+	if bullets.size() < MAX_BULLETS:
+		bullets.append([p, v, life])
 
 func _update_bullets(dt: float, player_pos: Vector3, player: Node) -> void:
 	var m := bullet_mm.multimesh

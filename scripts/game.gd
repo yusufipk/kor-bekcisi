@@ -459,6 +459,8 @@ func _spawn_pos(dist_min := 22.0, dist_max := 30.0) -> Vector3:
 	return pp + dir * dist_min
 
 func _director(dt: float) -> void:
+	if won or boss_dead_t >= 0.0:
+		return  # the boss is down: no more spawns while the victory plays out
 	spawn_t -= dt
 	if spawn_t <= 0.0:
 		spawn_t = 0.25
@@ -636,14 +638,13 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 			return 0.0
 		"volley":
 			boss_attack_t -= dt
-			boss_timer -= dt
 			if boss_timer <= 0.0:
 				boss_timer = 0.4 if not enraged else 0.28
 				var n := 14 if not enraged else 20
 				var off := randf() * TAU
 				for i in n:
 					var a := off + TAU * i / n
-					em.bullets.append([e.pos + Vector3(0, 1.2, 0), Vector3(cos(a), 0, sin(a)) * 8.0, 5.0])
+					em.add_bullet(e.pos + Vector3(0, 1.2, 0), Vector3(cos(a), 0, sin(a)) * 8.0, 5.0)
 			if boss_attack_t <= 0.0:
 				_boss_next(enraged)
 			return 0.3
@@ -686,7 +687,9 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 func _boss_calibrate(e, dt: float) -> void:
 	if boss_calibrated:
 		return
-	boss_fight_t += dt
+	# The clock starts at the first hit, so walking into range does not count.
+	if boss_taken > 0.0:
+		boss_fight_t += dt
 	if boss_fight_t < 8.0 and e.hp > e.max_hp * 0.25:
 		return
 	boss_calibrated = true
@@ -795,7 +798,7 @@ func add_xp(v: float) -> void:
 		level += 1
 		xp_next = xp_needed(level)
 		pending_levels += 1
-	if pending_levels > 0 and state == S_PLAY:
+	if pending_levels > 0 and state == S_PLAY and not player.dead:
 		_open_levelup(false)
 
 ## Early levels come quickly so the first minute already feels like growth.
@@ -811,7 +814,7 @@ func open_chest(p: Vector3) -> void:
 	for i in 8:
 		pickups.gem(p + Vector3(randf_range(-2, 2), 0, randf_range(-2, 2)), 5)
 	pending_chest += 1
-	if state == S_PLAY:
+	if state == S_PLAY and not player.dead:
 		_open_levelup(true)
 
 func _open_levelup(chest: bool) -> void:
@@ -857,10 +860,12 @@ func roll_choices() -> Array:
 				pick = i
 				break
 		if need_new_weapon and out.is_empty():
+			var fresh: Array = []
 			for i in pool.size():
 				if pool[i][1] == "w" and weapons.level(pool[i][0]) == 0:
-					pick = i
-					break
+					fresh.append(i)
+			if not fresh.is_empty():
+				pick = fresh[randi() % fresh.size()]
 		out.append({"id": pool[pick][0], "kind": pool[pick][1]})
 		pool.remove_at(pick)
 	return out
@@ -894,6 +899,8 @@ func apply_choice(c: Dictionary) -> void:
 		"crit": st.crit += 0.08
 
 func choose(c: Dictionary) -> void:
+	if state != S_LEVELUP:
+		return  # e.g. a late bot pick after the run already ended
 	apply_choice(c)
 	Sfx.play("select", Vector3.INF, 1.0, 0.0)
 	fx.burst(player.global_position + Vector3(0, 1, 0), Color(1.0, 0.85, 0.4), 14, 1.2)
@@ -920,6 +927,8 @@ func choose(c: Dictionary) -> void:
 	var pp: Vector3 = player.global_position
 	fx.ring(pp, 6.0, Color(1.0, 0.75, 0.3), 0.35, 0.0, 0.1)
 	for e in em.query(pp, 6.0):
+		if e.type == EnemyManager.BOSS:
+			continue
 		var away: Vector3 = e.pos - pp
 		away.y = 0
 		e.vel += away.normalized() * 14.0
@@ -941,6 +950,7 @@ func on_player_died() -> void:
 func _end_run(victory: bool) -> void:
 	if state == S_END:
 		return
+	victory = victory or won
 	state = S_END
 	Engine.time_scale = 1.0
 	get_tree().paused = true

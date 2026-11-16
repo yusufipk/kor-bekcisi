@@ -610,6 +610,7 @@ func hide_pause() -> void:
 func show_end(s: Dictionary) -> void:
 	hud.visible = false
 	lvl_layer.visible = false
+	hide_pause()
 	end_layer = ColorRect.new()
 	(end_layer as ColorRect).color = Color(0.05, 0.02, 0.08, 0.8)
 	end_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
