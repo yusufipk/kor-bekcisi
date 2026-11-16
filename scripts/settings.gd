@@ -69,9 +69,12 @@ static func load_plain(c: ConfigFile, path: String) -> Error:
 	if not FileAccess.file_exists(path):
 		return ERR_FILE_NOT_FOUND
 	var text := FileAccess.get_file_as_string(path)
-	# The parser skips whitespace before "(", so "Object (" must be caught too.
-	var re := RegEx.create_from_string("(Object|Resource|ExtResource|SubResource|Callable|Signal)\\s*\\(")
-	if re.search(text) != null:
+	# Allowlist, not a denylist: this game's saves hold only numbers, bools,
+	# strings, arrays and dictionaries, none of which need "(". Every Variant
+	# constructor does (Object, Resource, Vector3...), however it is spaced or
+	# commented, so with the quoted strings removed any "(" rejects the file.
+	var strings := RegEx.create_from_string("\"(?:[^\"\\\\]|\\\\.)*\"")
+	if strings.sub(text, "", true).contains("("):
 		push_warning("Ignoring save with non-plain values: " + path)
 		return ERR_INVALID_DATA
 	return c.parse(text)
