@@ -200,11 +200,13 @@ void fragment() {
 		m.size = Vector2(60, 34)
 		hud.add_child(m)
 		markers.append(m)
-	threat_arrow = _label("▲", 64, Color(1.0, 0.45, 0.15))
+	threat_arrow = _label("▲", 56, Color(1.0, 0.45, 0.15))
 	threat_arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	threat_arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	threat_arrow.size = Vector2(80, 80)
-	threat_arrow.pivot_offset = Vector2(40, 40)
+	# Fixed box larger than the glyph, so the pivot stays at its centre.
+	threat_arrow.custom_minimum_size = Vector2(110, 110)
+	threat_arrow.size = Vector2(110, 110)
+	threat_arrow.pivot_offset = Vector2(55, 55)
 	threat_arrow.add_theme_constant_override("outline_size", 10)
 	threat_arrow.visible = false
 	hud.add_child(threat_arrow)
@@ -796,6 +798,7 @@ func show_levelup(choices: Array, chest: bool) -> void:
 		g.events_done["card_shot"] = true
 		get_tree().create_timer(0.5, true, false, true).timeout.connect(func():
 			var dir := str(g.demo_cfg.get("shot_dir", "user://shots"))
+			DirAccess.make_dir_recursive_absolute(dir)
 			get_viewport().get_texture().get_image().save_jpg(dir + "/kart.jpg", 0.85)
 			print("SHOT card"))
 

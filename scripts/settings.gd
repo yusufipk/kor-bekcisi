@@ -69,10 +69,11 @@ static func load_plain(c: ConfigFile, path: String) -> Error:
 	if not FileAccess.file_exists(path):
 		return ERR_FILE_NOT_FOUND
 	var text := FileAccess.get_file_as_string(path)
-	for bad in ["Object(", "Resource(", "ExtResource(", "SubResource(", "Callable(", "Signal("]:
-		if text.contains(bad):
-			push_warning("Ignoring save with non-plain values: " + path)
-			return ERR_INVALID_DATA
+	# The parser skips whitespace before "(", so "Object (" must be caught too.
+	var re := RegEx.create_from_string("(Object|Resource|ExtResource|SubResource|Callable|Signal)\\s*\\(")
+	if re.search(text) != null:
+		push_warning("Ignoring save with non-plain values: " + path)
+		return ERR_INVALID_DATA
 	return c.parse(text)
 
 static func _num(v, fallback: float, lo: float, hi: float) -> float:

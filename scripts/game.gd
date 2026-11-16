@@ -55,7 +55,6 @@ var cur_chest := false           # the open card set came from a chest
 var dmg_src := ""                # set by Weapons around each hit
 var demo := false
 var end_ms := 0
-var mouse_ms := 0
 var demo_cfg := {}
 var prof := [0, 0, 0, 0, 0, 0]
 
@@ -491,7 +490,6 @@ func _unhandled_input(ev: InputEvent) -> void:
 	if ev is InputEventMouseMotion and state == S_PLAY and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var s := 0.0024 * Settings.mouse_sens
 		cam_yaw -= ev.relative.x * s
-		mouse_ms = Time.get_ticks_msec()
 		cam_pitch -= ev.relative.y * s * (-1.0 if Settings.invert_y else 1.0)
 		cam_pitch = clampf(cam_pitch, -1.25, -0.12)
 	if ev.is_action_pressed("pause"):
@@ -593,7 +591,9 @@ var _shot_list: Array = []
 func _demo_shots() -> void:
 	if _shot_list.is_empty() and demo_cfg.has("shots") and not events_done.has("shots_parsed"):
 		events_done["shots_parsed"] = true
-		for s in str(demo_cfg["shots"]).split(",", false):
+		var raw = demo_cfg["shots"]
+		var items: Array = raw if raw is Array else Array(str(raw).split(",", false))
+		for s in items:
 			_shot_list.append(float(s))
 		_shot_list.sort()
 	if not _shot_list.is_empty() and t >= _shot_list[0]:
@@ -627,15 +627,9 @@ func _update_camera(dt: float) -> void:
 	var rdt := dt / maxf(Engine.time_scale, 0.05)
 	var want := 11.0
 	if boss_live:
+		# No automatic turning: movement is camera-relative, so turning the view
+		# would steer a running player into the giant. The edge arrow points instead.
 		want = 12.5
-		# With the mouse at rest, turn slowly toward a boss that left the view,
-		# so a keyboard-only player never fights an off-screen giant.
-		if cam_look == null and Time.get_ticks_msec() - mouse_ms > 1500:
-			var tb: Vector3 = bs.pos - player.global_position
-			var yaw_b := atan2(-tb.x, -tb.z)
-			var diff := angle_difference(cam_yaw, yaw_b)
-			if absf(diff) > 0.9 and Vector2(tb.x, tb.z).length() > 4.0:
-				cam_yaw += clampf(diff, -rdt * 1.2, rdt * 1.2)
 	if evo_t > 0.0:
 		want = 6.5
 	cam_dist = lerpf(cam_dist, want, minf(1.0, rdt * 3.0))
@@ -1408,7 +1402,8 @@ func apply_choice(c: Dictionary) -> void:
 		if weapons.level(id) >= Upgrades.WEAPON_MAX and state != S_TITLE:
 			var partner: String = Upgrades.EVOS[id]["partner"]
 			if passives.get(partner, 0) > 0:
-				toast("%s uyandı! Bir sandık onu dönüştürecek." % Upgrades.WEAPONS[id]["name"], 4.0)
+				var msg := "Bir sandık onu dönüştürecek." if t >= EVO_FROM else "4. dakikadan sonra bir sandık onu dönüştürecek."
+				toast("%s uyandı! %s" % [Upgrades.WEAPONS[id]["name"], msg], 4.0)
 			else:
 				toast("%s uyandı! %s alırsan sandıkta dönüşür." % [Upgrades.WEAPONS[id]["name"], Upgrades.PASSIVES[partner]["name"]], 4.5)
 			fx.ring(player.global_position, 9.0, Color(1.0, 0.85, 0.3), 0.6, 0.2, 0.2)
@@ -1443,7 +1438,8 @@ func choose(c: Dictionary) -> void:
 		pending_chest -= 1
 	elif pending_levels > 0:
 		pending_levels -= 1
-	# After an evolution the cinematic plays first; _process reopens the rest.
+	# After an evolution the cinematic plays first; leftover chests reopen right
+	# after it, leftover level-ups after the short levelup_gap.
 	if (pending_chest > 0 or pending_levels > 0) and not _cinematic():
 		cur_chest = pending_chest > 0
 		var ch := roll_choices(cur_chest)
