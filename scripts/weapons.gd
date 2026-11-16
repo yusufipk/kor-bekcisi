@@ -63,8 +63,8 @@ void fragment() {
 	vec2 p = UV * 2.0 - 1.0;
 	float r = length(p);
 	float flick = 0.75 + 0.25 * sin(TIME * 13.0 + p.x * 7.0 + p.y * 5.0);
-	float a = (1.0 - smoothstep(0.35, 1.0, r)) * flick * life;
-	ALBEDO = mix(vec3(1.0, 0.25, 0.05), vec3(1.0, 0.8, 0.3), 1.0 - r);
+	float a = (1.0 - smoothstep(0.3, 1.0, r)) * flick * life * 0.75;
+	ALBEDO = mix(vec3(0.75, 0.10, 0.01), vec3(1.0, 0.42, 0.06), 1.0 - r);
 	ALPHA = clamp(a, 0.0, 1.0);
 }
 """
@@ -93,6 +93,14 @@ func add_weapon(id: String) -> void:
 	lv[id] = lv.get(id, 0) + 1
 	if not cd.has(id):
 		cd[id] = 0.3
+
+## Awakening: a weapon at max level hits 40 % harder.
+func _aw(l: int) -> float:
+	return 1.4 if l >= Upgrades.WEAPON_MAX else 1.0
+
+func _boss_in_range(pp: Vector3, r: float) -> bool:
+	var b = em.boss
+	return b != null and b.alive and Vector2(b.pos.x - pp.x, b.pos.z - pp.z).length() < r
 
 func level(id: String) -> int:
 	return lv.get(id, 0)
@@ -126,15 +134,19 @@ func _fire(id: String, l: int, player, st) -> float:
 	match id:
 		"bolt":
 			var n = 1 + int(l >= 2) + int(l >= 5) + 2 * int(l >= 7) + st.amount
-			var dmg := 11.0 * (1.3 if l >= 3 else 1.0)
+			var dmg := 11.0 * (1.3 if l >= 3 else 1.0) * _aw(l)
 			var pierce := int(l >= 4) + int(l >= 7)
 			var used: Array = []
+			var boss_live: bool = _boss_in_range(pp, 26.0)
 			for i in n:
 				var tgt = em.nearest(pp, 22.0 * st.area_range, used)
+				# During the boss fight every other bolt goes for the boss.
+				if boss_live and i % 2 == 0:
+					tgt = em.boss
 				var dir: Vector3
 				if tgt != null:
 					used.append(tgt)
-					dir = (tgt.pos + Vector3(0, 0.6 + em.TYPES[tgt.type]["fly"] * 0.8, 0)) - (pp + Vector3(0, 1.1, 0))
+					dir = (tgt.pos + Vector3(0, 0.6 + tgt.fly * 0.8, 0)) - (pp + Vector3(0, 1.1, 0))
 				elif used.size() > 0:
 					var u = used[i % used.size()]
 					dir = (u.pos - pp).rotated(Vector3.UP, randf_range(-0.25, 0.25))
@@ -147,11 +159,13 @@ func _fire(id: String, l: int, player, st) -> float:
 		"chain":
 			var strikes := 1 + int(l >= 5) + int(st.amount > 0)
 			var hops := 3 + 2 * int(l >= 2) + 3 * int(l >= 6)
-			var dmg := 16.0 * (1.35 if l >= 3 else 1.0) * (1.5 if l >= 7 else 1.0)
+			var dmg := 16.0 * (1.35 if l >= 3 else 1.0) * (1.5 if l >= 7 else 1.0) * _aw(l)
 			var fired := false
 			for s in strikes:
 				var first = em.nearest(pp, 16.0 * st.area_range, [])
-				if s > 0:
+				if s == 0 and _boss_in_range(pp, 20.0):
+					first = em.boss
+				elif s > 0:
 					var near := em.query(pp, 16.0 * st.area_range)
 					if near.is_empty():
 						break
@@ -166,7 +180,7 @@ func _fire(id: String, l: int, player, st) -> float:
 					if cur == null:
 						break
 					hit.append(cur)
-					var to: Vector3 = cur.pos + Vector3(0, 0.7 + em.TYPES[cur.type]["fly"], 0)
+					var to: Vector3 = cur.pos + Vector3(0, 0.7 + cur.fly, 0)
 					fx.bolt(from, to)
 					fx.burst(to, Color(0.6, 0.9, 1.0), 2, 0.6)
 					cur.slow_t = 0.8
@@ -191,7 +205,7 @@ func _fire(id: String, l: int, player, st) -> float:
 			for i in n:
 				var dir := base_dir.rotated(Vector3.UP, (i - (n - 1) * 0.5) * (TAU / maxf(n, 3.0)))
 				var rng = 9.0 * (1.35 if l >= 4 else 1.0) * st.area_range
-				var dmg := 20.0 * (1.3 if l >= 3 else 1.0) * (1.4 if l >= 6 else 1.0)
+				var dmg := 20.0 * (1.3 if l >= 3 else 1.0) * (1.4 if l >= 6 else 1.0) * _aw(l)
 				blades.append({"p": pp + Vector3(0, 1.0, 0), "dir": dir, "t": 0.0, "range": rng, "dmg": dmg, "hit": {}})
 			Sfx.play("whoosh", pp, 0.45)
 			return 1.9 * st.cd
@@ -200,12 +214,14 @@ func _fire(id: String, l: int, player, st) -> float:
 			for i in n:
 				var near := em.query(pp, 18.0)
 				var target: Vector3
-				if near.size() > 0:
+				if i == 0 and _boss_in_range(pp, 24.0):
+					target = em.boss.pos
+				elif near.size() > 0:
 					target = near[randi() % near.size()].pos
 				else:
 					target = pp + Vector3(randf_range(-10, 10), 0, randf_range(-10, 10))
 				var r = 3.2 * (1.35 if l >= 3 else 1.0) * st.area
-				var dmg := 42.0 * (1.5 if l >= 6 else 1.0)
+				var dmg := 42.0 * (1.5 if l >= 6 else 1.0) * _aw(l)
 				fx.telegraph(target, r, 0.55 + i * 0.12)
 				meteors.append({"target": target, "t": 0.55 + i * 0.12, "dmg": dmg, "r": r, "node": _meteor_node()})
 			return 2.6 * (0.75 if l >= 4 else 1.0) * st.cd
@@ -218,7 +234,7 @@ func _nova(pp: Vector3, l: int, st, delay: float) -> void:
 		get_tree().create_timer(delay, false).timeout.connect(func(): _nova(Game.inst.player.global_position, l, st, 0.0))
 		return
 	var r = 5.5 * (1.25 if l >= 2 else 1.0) * (1.25 if l >= 5 else 1.0) * st.area
-	var dmg := 22.0 * (1.4 if l >= 3 else 1.0) * (1.6 if l >= 7 else 1.0)
+	var dmg := 22.0 * (1.4 if l >= 3 else 1.0) * (1.6 if l >= 7 else 1.0) * _aw(l)
 	fx.ring(pp, r, Color(1.0, 0.45, 0.25), 0.35, 0.15, 0.18)
 	Sfx.play("nova", pp, 0.6)
 	for e in em.query(pp, r):
@@ -238,7 +254,7 @@ func _update_bolts(dt: float) -> void:
 		var dead: bool = b["life"] <= 0.0
 		if not dead:
 			for e in em.query(Vector3(p.x, 0, p.z), 0.35):
-				var top: float = em.TYPES[e.type]["fly"] + 1.6 * (3.0 if e.type == EnemyManager.BOSS else 1.0)
+				var top: float = e.fly + 1.6 * (3.0 if e.type == EnemyManager.BOSS else 1.0)
 				if p.y > top + 0.4:
 					continue
 				if b["hit"].has(e):
@@ -335,7 +351,7 @@ func _update_orbit(dt: float, pp: Vector3, st) -> void:
 		return
 	var radius = 3.0 * (1.3 if l >= 4 else 1.0) * st.area
 	var speed := 3.2 * (1.35 if l >= 4 else 1.0)
-	var dmg := 9.0 * (1.3 if l >= 3 else 1.0) * (1.4 if l >= 6 else 1.0)
+	var dmg := 9.0 * (1.3 if l >= 3 else 1.0) * (1.4 if l >= 6 else 1.0) * _aw(l)
 	orbit_angle += speed * dt
 	for j in n:
 		var a := orbit_angle + TAU * j / n
@@ -366,7 +382,7 @@ func _update_trail(dt: float, player, st) -> void:
 	var do_tick := patch_tick <= 0.0
 	if do_tick:
 		patch_tick = 0.1
-	var dmg := 7.0 * (1.4 if l >= 2 else 1.0) * (1.5 if l >= 5 else 1.0) * (1.6 if l >= 7 else 1.0)
+	var dmg := 7.0 * (1.4 if l >= 2 else 1.0) * (1.5 if l >= 5 else 1.0) * (1.6 if l >= 7 else 1.0) * _aw(l)
 	var m := patch_mm.multimesh
 	var i := 0
 	var n := 0
@@ -379,7 +395,7 @@ func _update_trail(dt: float, player, st) -> void:
 			continue
 		if do_tick:
 			for e in em.query(pt["p"], pt["r"]):
-				if e.trail_cd > 0.0 or em.TYPES[e.type]["fly"] > 0.5:
+				if e.trail_cd > 0.0 or e.fly > 0.5:
 					continue
 				e.trail_cd = 0.45
 				_hit(e, dmg, Vector3.ZERO)

@@ -16,7 +16,7 @@ func _ready() -> void:
 
 func pick_soon(choices: Array) -> void:
 	pending = choices
-	pick_t = 0.25
+	pick_t = float(g.demo_cfg.get("pick_delay", 0.25))
 
 func _process(dt: float) -> void:
 	var rdt := dt / maxf(Engine.time_scale, 0.01)
@@ -63,13 +63,15 @@ func _physics_process(dt: float) -> void:
 			if not s["lit"]:
 				if goal == null or pp.distance_to(s["p"]) < pp.distance_to(goal):
 					goal = s["p"]
-	if g.pickups.g_count > 0:
+	# Crystals only win over a far objective when they are close.
+	var far_goal: bool = goal != null and pp.distance_to(goal) > 25.0
+	if g.pickups.g_count > 0 and (goal == null or far_goal):
 		var best := 1e9
 		for i in mini(g.pickups.g_count, 200):
 			var d2: float = pp.distance_squared_to(g.pickups.g_pos[i])
-			if d2 < best and d2 < 400.0:
+			if d2 < best and d2 < 100.0:
 				best = d2
-				goal = g.pickups.g_pos[i] if danger < 0.6 or goal == null else goal
+				goal = g.pickups.g_pos[i]
 	if goal != null:
 		var to: Vector3 = goal - pp
 		to.y = 0
@@ -83,6 +85,14 @@ func _physics_process(dt: float) -> void:
 		var l = d.length()
 		if l < o[1] + 2.0:
 			steer += Vector3(d.x, 0, d.y).normalized() * 1.5
+	# Fight the boss at mid range instead of running from it forever.
+	var bs = g.em.boss
+	if bs != null and bs.alive:
+		var to_b: Vector3 = bs.pos - pp
+		to_b.y = 0
+		var db := to_b.length()
+		if db > 14.0:
+			steer += to_b.normalized() * 2.5
 	if steer.length() < 0.1:
 		steer = Vector3(sin(Time.get_ticks_msec() * 0.0005), 0, cos(Time.get_ticks_msec() * 0.0005))
 	steer = steer.normalized()
@@ -102,6 +112,8 @@ func _physics_process(dt: float) -> void:
 		last_pos = pp
 		stuck_t = 0.0
 	log_t += dt
+	if g.em.boss != null and g.em.boss.alive and Engine.get_physics_frames() % 300 == 0:
+		print("BOSS t=%.1f hp=%d/%d dist=%.1f" % [g.t, g.em.boss.hp, g.em.boss.max_hp, pp.distance_to(g.em.boss.pos)])
 	if log_t > 10.0:
 		log_t = 0.0
 		print("BOT t=%d hp=%d lv=%d kills=%d alive=%d fps=%d" % [g.t, p.hp, g.level, g.kills, g.em.alive_count(), Engine.get_frames_per_second()])

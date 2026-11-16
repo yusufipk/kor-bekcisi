@@ -49,5 +49,8 @@ static func level_text(id: String, next_lv: int) -> String:
 		if next_lv <= 1:
 			return WEAPONS[id]["desc"]
 		var arr: Array = WEAPONS[id]["lv"]
-		return arr[clampi(next_lv - 2, 0, arr.size() - 1)]
+		var txt: String = arr[clampi(next_lv - 2, 0, arr.size() - 1)]
+		if next_lv >= WEAPON_MAX:
+			txt += ". Uyanış: +%40 hasar"
+		return txt
 	return PASSIVES[id]["desc"]

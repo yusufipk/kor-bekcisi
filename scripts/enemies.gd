@@ -34,6 +34,11 @@ class Enemy:
 	var slow_t := 0.0
 	var dmg_mult := 1.0
 	var spd_mult := 1.0
+	var r := 0.5          # cached body radius
+	var speed := 1.0      # cached base speed
+	var fly := 0.0
+	var jump_safe := 1.0
+	var dmg := 1.0
 
 var enemies: Array = []
 var grid := {}
@@ -125,14 +130,18 @@ func spawn(type: int, pos: Vector3, elite := false):
 	e.elite = elite
 	e.phase = randf() * TAU
 	e.shoot_t = randf_range(1.0, 3.0)
+	e.r = float(d["r"]) * (1.6 if elite else 1.0)
+	e.speed = d["speed"]
+	e.fly = d["fly"]
+	e.jump_safe = d["jump_safe"]
+	e.dmg = d["dmg"]
 	enemies.append(e)
 	if type == BOSS:
 		boss = e
 	return e
 
 func radius_of(e) -> float:
-	var r: float = TYPES[e.type]["r"]
-	return r * (1.6 if e.elite else 1.0)
+	return e.r
 
 func _cell(p: Vector3) -> Vector2i:
 	return Vector2i(floori(p.x / CELL), floori(p.z / CELL))
@@ -162,7 +171,7 @@ func query(p: Vector3, radius: float) -> Array:
 					continue
 				var dx: float = e.pos.x - p.x
 				var dz: float = e.pos.z - p.z
-				var rr: float = radius + radius_of(e)
+				var rr: float = radius + e.r
 				if dx * dx + dz * dz <= rr * rr:
 					out.append(e)
 	return out
@@ -232,7 +241,7 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 		var dist := sqrt(tx * tx + tz * tz) + 0.0001
 		var dx := tx / dist
 		var dz := tz / dist
-		var spd: float = d["speed"] * e.spd_mult * (0.45 if e.slow_t > 0.0 else 1.0)
+		var spd: float = e.speed * e.spd_mult * (0.45 if e.slow_t > 0.0 else 1.0)
 		var mx := dx * spd
 		var mz := dz * spd
 		match e.type:
@@ -259,12 +268,12 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 				var f: float = g.boss_ai(e, dt, dist, dx, dz)
 				mx *= f
 				mz *= f
-		var r := radius_of(e)
+		var r: float = e.r
 		if e.type != BOSS:
 			# Separation from neighbours
 			var sx := 0.0
 			var sz := 0.0
-			var c := _cell(e.pos)
+			var c := Vector2i(floori(e.pos.x / CELL), floori(e.pos.z / CELL))
 			var checked := 0
 			for ox in range(-1, 2):
 				for oz in range(-1, 2):
@@ -276,7 +285,7 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 							continue
 						var ex: float = e.pos.x - o.pos.x
 						var ez: float = e.pos.z - o.pos.z
-						var rr: float = r + radius_of(o)
+						var rr: float = r + o.r
 						var l2 := ex * ex + ez * ez
 						if l2 < rr * rr and l2 > 0.00001:
 							var l := sqrt(l2)
@@ -317,8 +326,8 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 		e.trail_cd -= dt
 		e.yaw = lerp_angle(e.yaw, atan2(dx, dz), minf(1.0, dt * 8.0))
 		# Contact damage; jumping clears low enemies.
-		if dist < r + 0.45 and py < float(d["jump_safe"]):
-			player.hurt(d["dmg"] * e.dmg_mult * g.enemy_dmg_mult, e.pos)
+		if dist < r + 0.45 and py < e.jump_safe:
+			player.hurt(e.dmg * e.dmg_mult * g.enemy_dmg_mult, e.pos)
 		# Recycle stragglers far behind so pressure stays on the player.
 		if dist > 46.0 and e.type != BOSS:
 			var ang := randf() * TAU
@@ -335,6 +344,9 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 		elif boss_node:
 			boss_node.position = Vector3(e.pos.x, boss_node.position.y, e.pos.z)
 			boss_node.rotation.y = e.yaw
+			var ov = boss_node.get_meta("overlay", null)
+			if ov:
+				ov.set_shader_parameter("flash", e.flash)
 	for ti in range(4):
 		var m: MultiMesh = mm[ti].multimesh
 		m.visible_instance_count = counts[ti]

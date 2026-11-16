@@ -248,8 +248,12 @@ func _refresh_weapons() -> void:
 		var w: Dictionary = Upgrades.WEAPONS[id]
 		var b: PanelContainer = weapon_row.get_child(i)
 		var lab: Label = b.get_child(0)
-		lab.text = "%s%d" % [w["icon"], g.weapons.lv[id]]
-		(b.get_theme_stylebox("panel") as StyleBoxFlat).bg_color = Color(w["color"], 0.35)
+		var lvl: int = g.weapons.lv[id]
+		lab.text = "%s%d" % [w["icon"], lvl] if lvl < Upgrades.WEAPON_MAX else "%s★" % w["icon"]
+		var sb := b.get_theme_stylebox("panel") as StyleBoxFlat
+		sb.bg_color = Color(w["color"], 0.35)
+		sb.border_color = Color(1.0, 0.85, 0.3)
+		sb.set_border_width_all(2 if lvl >= Upgrades.WEAPON_MAX else 0)
 
 func _badge(txt: String, col: Color, sz: int) -> PanelContainer:
 	var p := PanelContainer.new()
@@ -484,7 +488,11 @@ func _card(c: Dictionary, i: int) -> Button:
 	var nm := _label(d["name"], 24, col.lightened(0.2))
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(nm)
-	var tag := _label("  Yeni" if cur == 0 else "  Sv %d" % (cur + 1), 18, Color(1, 0.9, 0.5) if cur == 0 else Color(0.8, 0.8, 0.9))
+	var tag_txt := "  Yeni" if cur == 0 else "  Sv %d" % (cur + 1)
+	if is_w and cur + 1 >= Upgrades.WEAPON_MAX:
+		tag_txt = "  Uyanış"
+		sb.border_color = Color(1.0, 0.85, 0.3)
+	var tag := _label(tag_txt, 18, Color(1, 0.9, 0.5) if cur == 0 or tag_txt == "  Uyanış" else Color(0.8, 0.8, 0.9))
 	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(tag)
 	var desc := _label(Upgrades.level_text(id, cur + 1), 19)

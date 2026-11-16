@@ -303,6 +303,11 @@ func start_run() -> void:
 			if ch.size() > 0:
 				apply_choice(ch[randi() % ch.size()])
 		level += n
+		xp_next = xp_needed(level)
+		for id in ["tip_shrine", "tip_jump", "ring1", "ring2", "ring3", "swarm1", "swarm2", "swarm3", "music_late"]:
+			events_done[id] = true
+		if skip > 270.0:
+			_play_music("late")
 	if demo and demo_cfg.has("time_scale"):
 		Engine.time_scale = float(demo_cfg["time_scale"])
 
@@ -351,8 +356,12 @@ func _process(dt: float) -> void:
 	if state != S_PLAY:
 		return
 	t += dt
+	if demo and demo_cfg.has("pause_at") and t >= float(demo_cfg["pause_at"]) and not events_done.has("demo_pause"):
+		events_done["demo_pause"] = true
+		pause()
+		return
 	enemy_dmg_mult = 1.0 + t / 420.0
-	em.hp_mult = 1.0 + t / 110.0 + pow(t / 320.0, 2.0)
+	em.hp_mult = 1.0 + t / 130.0 + pow(t / 300.0, 2.0)
 	var t0 := Time.get_ticks_usec()
 	_director(dt)
 	var t1 := Time.get_ticks_usec()
@@ -410,7 +419,7 @@ func _target_alive() -> float:
 		if t < pts[i + 1][0]:
 			var k: float = (t - pts[i][0]) / (pts[i + 1][0] - pts[i][0])
 			return lerpf(pts[i][1], pts[i + 1][1], k)
-	return 110.0  # during the boss: thinner support waves
+	return 70.0  # during the boss: thinner support waves
 
 func _pick_type() -> int:
 	var w := [1.0, 0.0, 0.0, 0.0]
@@ -443,10 +452,11 @@ func _spawn_pos(dist_min := 22.0, dist_max := 30.0) -> Vector3:
 func _director(dt: float) -> void:
 	spawn_t -= dt
 	if spawn_t <= 0.0:
-		spawn_t = 0.3
+		spawn_t = 0.25
 		var target := _target_alive()
 		var deficit := int(target) - em.alive_count()
-		var burst := mini(deficit, 2 + int(t / 40.0))
+		# Throughput must outpace a strong build, or the horde never piles up.
+		var burst := mini(deficit, 3 + int(t / 14.0))
 		for i in burst:
 			em.spawn(_pick_type(), _spawn_pos())
 	# Elites
@@ -527,7 +537,7 @@ func _spawn_boss() -> void:
 	boss_spawned = true
 	var p := _spawn_pos(20.0, 24.0)
 	var e = em.spawn(EnemyManager.BOSS, p)
-	e.max_hp = 26000.0 * (1.0 + 0.04 * maxi(0, level - 25))
+	e.max_hp = 14000.0 * (1.0 + 0.03 * maxi(0, level - 30))
 	e.hp = e.max_hp
 	var node := Models.prop("res://art/models/boss.glb", 7.5)
 	if node == null:
@@ -538,6 +548,22 @@ func _spawn_boss() -> void:
 		mi.mesh = bm
 		mi.position.y = 3.5
 		node.add_child(mi)
+	# Additive overlay that flashes white on hits, like the horde shader does.
+	var ov := ShaderMaterial.new()
+	var osh := Shader.new()
+	osh.code = """
+shader_type spatial;
+render_mode unshaded, blend_add, depth_draw_never;
+uniform float flash = 0.0;
+void fragment() {
+	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.0);
+	ALBEDO = vec3(1.0) * flash * 0.7 + vec3(1.0, 0.25, 0.6) * rim * 0.5;
+}
+"""
+	ov.shader = osh
+	for mi in node.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).material_overlay = ov
+	node.set_meta("overlay", ov)
 	var glow := OmniLight3D.new()
 	glow.light_color = Color(1.0, 0.35, 0.6)
 	glow.light_energy = 3.0
@@ -557,6 +583,12 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 	boss_timer -= dt
 	match boss_state:
 		"walk":
+			if dist > 17.0 and boss_timer <= 1.5:
+				# Gap closer: flash as a warning, then lunge at the hero.
+				boss_state = "charge_wind"
+				boss_attack_t = 0.7
+				toast("Kül Devi hamle yapıyor! Yana kay!", 1.5)
+				return 0.0
 			if boss_timer <= 0.0:
 				var r := randf()
 				if dist < 14.0 and r < 0.5:
@@ -572,7 +604,7 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 				else:
 					boss_state = "summon"
 					boss_attack_t = 0.6
-			return 1.45 if enraged else 1.0
+			return 1.9 if enraged else 1.45
 		"slam":
 			boss_attack_t -= dt
 			if boss_attack_t <= 0.0:
@@ -598,6 +630,28 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 			if boss_attack_t <= 0.0:
 				_boss_next(enraged)
 			return 0.3
+		"charge_wind":
+			boss_attack_t -= dt
+			e.flash = 1.0
+			if Engine.get_process_frames() % 4 == 0:
+				fx.burst(e.pos + Vector3(0, 3.0, 0), Color(1.0, 0.3, 0.5), 3, 1.0)
+			if boss_attack_t <= 0.0:
+				boss_state = "charge"
+				boss_attack_t = 1.1
+				boss_target = Vector3(dx, 0, dz)
+				Sfx.play("roar", Vector3.INF, 0.6, 0.1)
+			return 0.0
+		"charge":
+			boss_attack_t -= dt
+			if Engine.get_process_frames() % 3 == 0:
+				fx.dust(e.pos, 4)
+			# Committed direction: a side slide dodges it.
+			e.vel = boss_target * 20.0
+			if boss_attack_t <= 0.0:
+				e.vel = Vector3.ZERO
+				shake(0.3)
+				_boss_next(enraged)
+			return 0.0
 		"summon":
 			boss_attack_t -= dt
 			if boss_attack_t <= 0.0:
@@ -692,10 +746,10 @@ func on_enemy_killed(e) -> void:
 		v *= 5
 	pickups.gem(e.pos, v)
 	var r := randf()
-	if r < 0.006:
+	if r < 0.009 or e.elite:
 		pickups.item(e.pos, "heal")
-	elif r < 0.009:
-		pickups.item(e.pos, "magnet")
+	elif r < 0.012:
+		pickups.item(e.pos + Vector3(0.8, 0, 0), "magnet")
 	if e.elite or e.type == EnemyManager.BRUTE:
 		shake(0.15)
 
@@ -712,7 +766,7 @@ func add_xp(v: float) -> void:
 ## Early levels come quickly so the first minute already feels like growth.
 static func xp_needed(lv: int) -> float:
 	var n := float(lv - 1)
-	return 4.0 + n * 3.5 + pow(n, 1.45)
+	return 4.0 + n * 3.5 + pow(n, 1.6)
 
 func open_chest(p: Vector3) -> void:
 	chests_opened += 1
@@ -779,6 +833,12 @@ func apply_choice(c: Dictionary) -> void:
 	var id: String = c["id"]
 	if c["kind"] == "w":
 		weapons.add_weapon(id)
+		if weapons.level(id) >= Upgrades.WEAPON_MAX and state != S_TITLE:
+			toast("%s uyandı! +%%40 hasar" % Upgrades.WEAPONS[id]["name"], 3.5)
+			fx.ring(player.global_position, 9.0, Color(1.0, 0.85, 0.3), 0.6, 0.2, 0.2)
+			fx.burst(player.global_position + Vector3(0, 1.2, 0), Color(1.0, 0.85, 0.3), 40, 2.0)
+			Sfx.play("shrine", Vector3.INF, 1.0, 0.0)
+			shake(0.3)
 		return
 	passives[id] = passives.get(id, 0) + 1
 	match id:
@@ -822,7 +882,7 @@ func choose(c: Dictionary) -> void:
 	# Brief invulnerability and a soft push so a pick never drops you into a hit.
 	player.invuln_t = maxf(player.invuln_t, 0.6)
 	var pp: Vector3 = player.global_position
-	fx.ring(pp, 6.0, Color(1.0, 0.85, 0.4), 0.4, 0.1, 0.15)
+	fx.ring(pp, 6.0, Color(1.0, 0.75, 0.3), 0.35, 0.0, 0.1)
 	for e in em.query(pp, 6.0):
 		var away: Vector3 = e.pos - pp
 		away.y = 0

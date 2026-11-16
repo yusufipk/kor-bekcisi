@@ -10,8 +10,8 @@ const SLIDE_SPEED := 21.0
 const SLIDE_TIME := 0.38
 const SLIDE_CD := 0.85
 
-var hp := 100.0
-var max_hp := 100.0
+var hp := 120.0
+var max_hp := 120.0
 var invuln_t := 0.0
 var slide_t := 0.0
 var slide_cd := 0.0
@@ -184,7 +184,7 @@ func hurt(dmg: float, from: Vector3) -> void:
 	if g.state != Game.S_PLAY:
 		return
 	hp -= dmg * g.st.armor
-	invuln_t = 0.55
+	invuln_t = 0.7
 	hurt_flash = 1.0
 	g.stats_damage_taken += dmg * g.st.armor
 	var away := (global_position - from)
@@ -194,6 +194,8 @@ func hurt(dmg: float, from: Vector3) -> void:
 	g.shake(0.35)
 	Sfx.play("hurt", global_position, 0.9)
 	g.fx.burst(global_position + Vector3(0, 1, 0), Color(1, 0.3, 0.3), 10, 1.0)
+	if g.demo and g.demo_cfg.get("god", false):
+		hp = maxf(hp, 1.0)
 	if hp <= 0.0:
 		hp = 0.0
 		dead = true
