@@ -1,0 +1,45 @@
+# zaman	is	model	kredi	job_id
+11:39	stil karesi (BAŞARISIZ, iade belirsiz)	gpt_image_2_6 high 2k 16:9	2.75	939f7edc-4bcf-4a21-9e7b-53c4f187edb0
+11:40	stil karesi 2. deneme (BAŞARISIZ, iade belirsiz)	gpt_image_2_6 high 2k 16:9	2.75	c660f1bf-8976-4e87-9407-46afd3a355cb
+11:41	stil karesi 3. deneme (BAŞARISIZ)	gpt_image_2_6 high 2k 3:2	2.75	68ef2714-ac78-4fc2-bbdb-1b7d04e9037b
+11:43	stil karesi 4. deneme (BAŞARISIZ)	gpt_image_2_6_flare high 2k 3:2	2.75	f7b81b3f-357a-4054-932d-e1f6935becd8
+11:44	servis testi elma (BAŞARISIZ)	gpt_image_2_6 low 1k	0.25	295c17ce-fc6f-4169-b192-0b63d3b9776c
+11:45	stil karesi 5. deneme	gpt_image_2_5 sunburst high 2k 3:2	2.75	d0cefc29-aed2-44f2-8b08-5caed5382bf6
+11:47	kahraman görseli	gpt_image_2_5 sunburst high 2k	2.75	8d1c67ef-2b55-4583-af21-fa26e9d2cffa
+11:47	böcek görseli	gpt_image_2_5 sunburst high 2k	2.75	0f29ff35-ea89-4e02-aa82-3e6a67856b16
+11:47	güve görseli	gpt_image_2_5 sunburst high 2k	2.75	727acd33-6e01-48cd-b695-60d29b3cfd0e
+11:47	hantal görseli	gpt_image_2_5 sunburst high 2k	2.75	eb087582-56dc-4279-afe1-3975aba4eace
+11:47	tükürgeç görseli	gpt_image_2_5 sunburst high 2k	2.75	b5e32781-203b-4905-be76-49bb909d2d64
+11:47	boss görseli	gpt_image_2_5 sunburst high 2k	2.75	c6a57b69-5a0b-42f0-870a-8afc4163c6ed
+11:47	ağaç görseli	gpt_image_2_5 sunburst high 2k	2.75	62e7f552-3631-41dd-8113-9cc6f5639591
+11:47	kaya görseli	gpt_image_2_5 sunburst high 2k	2.75	7723897f-1244-4f4e-a8a6-ddbb2a01404f
+11:47	fener taşı görseli	gpt_image_2_5 sunburst high 2k	2.75	6221c8bf-054f-496f-b6bf-3f3a21a7e8bd
+11:47	sandık görseli	gpt_image_2_5 sunburst high 2k	2.75	43d6f222-53ee-4b64-ae1f-0cef97665a40
+11:48	müzik erken tur 150sn	elevenlabs_music_v2_5	21.8	4c39528d-c54c-4466-bfe3-ba7ab29939d0
+11:48	müzik geç tur 150sn	elevenlabs_music_v2_5	21.8	d2ba6f56-d1b0-4cb5-848e-1e85cb64bf76
+11:48	müzik boss 120sn	elevenlabs_music_v2_5	17.44	0372db5f-3a35-4016-bdf3-e86cad3a0eb4
+11:48	sfx isabet 1sn	mirelo_text_to_audio	0.25	25ca68ce-57df-4b4a-a27b-003e2f92a52f
+11:48	sfx ölüm 1sn	mirelo_text_to_audio	0.25	ccddd210-49b4-43a1-981b-72ca04f2be27
+11:48	sfx toplama 1sn	mirelo_text_to_audio	0.25	d2be99a7-49c3-4fbf-8619-f33fab00f2fc
+11:48	sfx seviye 2sn	mirelo_text_to_audio	0.5	85f67fce-2840-4f28-96f3-e89d443816fe
+11:48	sfx kayma (429, gönderilmedi)	mirelo_text_to_audio	0	-
+11:48	sfx hasar 1sn	mirelo_text_to_audio	0.25	5be34d33-8775-4979-9736-5af1e6b87d01
+11:48	sfx sandık 2sn	mirelo_text_to_audio	0.5	db8adda2-7982-41fb-8d9f-607dce989677
+11:48	sfx boss kükreme 3sn	mirelo_text_to_audio	0.75	801bdb11-ca8c-4b8e-ad8e-faa3b8dada75
+11:48	sfx yere vuruş 2sn	mirelo_text_to_audio	0.5	26737ced-ea42-4277-9fa8-41d6ba3d96c2
+11:48	sfx göktaşı 2sn	mirelo_text_to_audio	0.5	d6a121be-ac5c-463f-8948-d68ed1a15cc4
+11:48	sfx şimşek 1sn	mirelo_text_to_audio	0.25	37fb5e4f-849f-42c3-9e54-12bf5bd8e09b
+11:48	sfx dalga 2sn	mirelo_text_to_audio	0.5	5d8cba16-7eb8-489e-9e76-127ace0923e0
+11:49	kahraman 3D iskelet+koşu	image_to_3d rig+anim 16	38	59323890-4f68-4c2d-87ed-019ce6f46886
+11:49	böcek 3D	hunyuan3d_v3 LowPoly	14	1c22924d-e9b3-4402-b4ec-3d4c2bbed4c7
+11:49	güve 3D	hunyuan3d_v3 LowPoly	14	fa5c2d7f-ef19-437c-af92-0833f684a680
+11:49	hantal 3D	hunyuan3d_v3 LowPoly	14	2d603ad4-bacc-4078-958d-9bd8ba8c753d
+11:49	tükürgeç 3D	hunyuan3d_v3 LowPoly	14	f4cd8cdf-d674-4285-83c1-977d7a29ff78
+11:49	boss 3D	hunyuan3d_v3 LowPoly	14	6ad1a65f-3c3a-45c0-968a-631c4001f311
+11:49	ağaç 3D	hunyuan3d_v3 LowPoly	14	5a0905e6-4830-4b9d-8c8a-0f11c80ec15d
+11:49	kaya 3D	hunyuan3d_v3 LowPoly	14	c8e7ec7e-91ad-4873-a292-a751478461e0
+11:49	fener taşı 3D	hunyuan3d_v3 LowPoly	14	0b9776f8-d029-429d-9830-bbfdabac6372
+11:49	sandık 3D	hunyuan3d_v3 LowPoly	14	91256ce2-27f0-4cc3-8831-053b2331870c
+11:52	kahraman klip bekleme (0)	3d_rigging	8	11671e7d-96fd-446c-af3c-b98a2f4e4cad
+11:52	kahraman klip zıplama (466)	3d_rigging	8	6cc55860-cb4f-465e-a106-4819acb10a70
+11:52	kahraman klip kayma (516)	3d_rigging	8	3ea57790-d751-494d-a5ca-8c453171419d
