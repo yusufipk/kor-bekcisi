@@ -57,15 +57,32 @@ func _setup_input() -> void:
 	mb.button_index = MOUSE_BUTTON_RIGHT
 	InputMap.action_add_event("slide", mb)
 
+## Load a save file that may only hold plain values. ConfigFile.load would
+## instantiate Object(...) and Resource(...) values while parsing, before any
+## type check, so a shared save could construct objects or load scripts.
+static func load_plain(c: ConfigFile, path: String) -> Error:
+	if not FileAccess.file_exists(path):
+		return ERR_FILE_NOT_FOUND
+	var text := FileAccess.get_file_as_string(path)
+	for bad in ["Object(", "Resource(", "ExtResource(", "SubResource(", "Callable(", "Signal("]:
+		if text.contains(bad):
+			push_warning("Ignoring save with non-plain values: " + path)
+			return ERR_INVALID_DATA
+	return c.parse(text)
+
+static func _num(v, fallback: float, lo: float, hi: float) -> float:
+	return clampf(float(v), lo, hi) if (v is int or v is float) and not is_nan(float(v)) else fallback
+
 func load_cfg() -> void:
 	var c := ConfigFile.new()
-	if c.load(PATH) != OK:
+	if load_plain(c, PATH) != OK:
 		return
-	mouse_sens = c.get_value("s", "mouse_sens", mouse_sens)
-	music_vol = c.get_value("s", "music_vol", music_vol)
-	sfx_vol = c.get_value("s", "sfx_vol", sfx_vol)
-	brightness = c.get_value("s", "brightness", brightness)
-	invert_y = c.get_value("s", "invert_y", invert_y)
+	mouse_sens = _num(c.get_value("s", "mouse_sens", mouse_sens), mouse_sens, 0.2, 3.0)
+	music_vol = _num(c.get_value("s", "music_vol", music_vol), music_vol, 0.0, 1.0)
+	sfx_vol = _num(c.get_value("s", "sfx_vol", sfx_vol), sfx_vol, 0.0, 1.0)
+	brightness = _num(c.get_value("s", "brightness", brightness), brightness, 0.6, 1.6)
+	var inv = c.get_value("s", "invert_y", invert_y)
+	invert_y = inv if inv is bool else false
 
 func save_cfg() -> void:
 	var c := ConfigFile.new()

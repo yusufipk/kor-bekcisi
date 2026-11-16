@@ -24,15 +24,28 @@ var runs := 0
 
 func load_cfg() -> void:
 	var c := ConfigFile.new()
-	if c.load(PATH) != OK:
+	if Settings.load_plain(c, PATH) != OK:
 		return
-	kor = c.get_value("m", "kor", 0)
-	ranks = c.get_value("m", "ranks", {})
-	discovered = c.get_value("m", "discovered", [])
-	start_weapon = c.get_value("m", "start_weapon", "bolt")
-	runs = c.get_value("m", "runs", 0)
-	if not Upgrades.WEAPONS.has(start_weapon):
-		start_weapon = "bolt"
+	# A hand-edited save must not crash the game or wipe the rest of the file.
+	var v = c.get_value("m", "kor", 0)
+	kor = maxi(0, int(v)) if (v is int or v is float) else 0
+	v = c.get_value("m", "ranks", {})
+	ranks = {}
+	if v is Dictionary:
+		for u in UPGRADES:
+			var r = v.get(u["id"], 0)
+			if r is int or r is float:
+				ranks[u["id"]] = clampi(int(r), 0, (u["cost"] as Array).size())
+	v = c.get_value("m", "discovered", [])
+	discovered = []
+	if v is Array:
+		for id in v:
+			if id is String and Upgrades.EVOS.has(id) and not discovered.has(id):
+				discovered.append(id)
+	v = c.get_value("m", "start_weapon", "bolt")
+	start_weapon = v if v is String and Upgrades.WEAPONS.has(v) else "bolt"
+	v = c.get_value("m", "runs", 0)
+	runs = maxi(0, int(v)) if (v is int or v is float) else 0
 
 func save_cfg() -> void:
 	var c := ConfigFile.new()
@@ -44,7 +57,10 @@ func save_cfg() -> void:
 	c.save(PATH)
 
 func rank(id: String) -> int:
-	return int(ranks.get(id, 0))
+	var u := info(id)
+	if u.is_empty():
+		return 0
+	return clampi(int(ranks.get(id, 0)), 0, (u["cost"] as Array).size())
 
 static func info(id: String) -> Dictionary:
 	for u in UPGRADES:

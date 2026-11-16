@@ -710,6 +710,8 @@ void fragment() {
 		var hd: Dictionary = tornado_hit[j]
 		for key in hd.keys():
 			hd[key] -= dt
+			if hd[key] <= 0.0:
+				hd.erase(key)
 		var reach: float = 1.9 * st.area
 		for e in em.query(p, reach + 1.5):
 			var to: Vector3 = p - e.pos

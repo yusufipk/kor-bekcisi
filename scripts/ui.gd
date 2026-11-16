@@ -18,6 +18,7 @@ var weapon_row: HBoxContainer
 var passive_row: HBoxContainer
 var banner_box: VBoxContainer
 var reroll_btn: Button
+var banner_tw: Tween
 var toast_label: Label
 var toast_t := 0.0
 var hint_label: Label
@@ -317,7 +318,10 @@ func banner(top: String, main: String, col: Color, dur := 2.6) -> void:
 	banner_box.visible = true
 	banner_box.modulate.a = 0.0
 	banner_box.scale = Vector2(1.4, 1.4)
+	if banner_tw and banner_tw.is_valid():
+		banner_tw.kill()
 	var tw := create_tween()
+	banner_tw = tw
 	tw.set_parallel(true)
 	tw.tween_property(banner_box, "modulate:a", 1.0, 0.2)
 	tw.tween_property(banner_box, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
@@ -551,13 +555,15 @@ func _altar() -> void:
 	var book := VBoxContainer.new()
 	book.add_theme_constant_override("separation", 10)
 	right.add_child(book)
-	var rebuild: Callable
-	rebuild = func():
+	# Lambdas capture locals by value, so the self-reference goes through an array.
+	var holder: Array = []
+	var rebuild := func():
 		for c in grid.get_children():
 			c.queue_free()
 		bal.text = "%d kor" % g.meta.kor
 		for u in g.meta.UPGRADES:
-			grid.add_child(_altar_tile(u, rebuild))
+			grid.add_child(_altar_tile(u, holder[0]))
+	holder.append(rebuild)
 	rebuild.call()
 	book.add_child(_label("Dönüşümler", 28, Color(1.0, 0.9, 0.55)))
 	for id in Upgrades.EVOS.keys():

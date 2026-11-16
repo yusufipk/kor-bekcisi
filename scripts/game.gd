@@ -392,7 +392,7 @@ func try_revive() -> bool:
 	fx.ring(pp, 12.0, Color(0.5, 1.0, 0.7), 0.6, 0.25, 0.25)
 	fx.pillar(pp, Color(0.6, 1.0, 0.75))
 	for e in em.query(pp, 12.0):
-		if e.type == EnemyManager.BOSS or e.type == EnemyManager.CRYSTAL:
+		if _is_big(e) or e.type == EnemyManager.CRYSTAL:
 			continue
 		e.vel += (e.pos - pp).normalized() * 26.0
 		em.damage(e, 300.0, Vector3.ZERO)
@@ -491,7 +491,7 @@ func _process(dt: float) -> void:
 		for k in n:
 			var o = crumble.pop_back()
 			if o.alive:
-				o.alive = false
+				em.dissolve(o)
 				fx.burst(o.pos + Vector3(0, 0.8, 0), Color(1.0, 0.85, 0.5), 4, 1.0)
 		if boss_dead_t < 0.0:
 			_end_run(true)
@@ -528,9 +528,13 @@ func _update_camera(dt: float) -> void:
 		RenderingServer.global_shader_parameter_set("player_screen", cam.unproject_position(head) / vp)
 		RenderingServer.global_shader_parameter_set("player_depth", cam.global_position.distance_to(head))
 
+## Bosses are immune to screen-clearing effects (lanterns, evolutions, revive).
+func _is_big(e) -> bool:
+	return e.type == EnemyManager.BOSS or e.type == EnemyManager.SERPENT or e.type == EnemyManager.SEG
+
 ## Level-ups wait while an evolution or the boss entrance is on screen.
 func _cinematic() -> bool:
-	return evo_t > 0.0 or boss_intro_t > 0.0
+	return evo_t > 0.0 or boss_intro_t > 0.0 or won
 
 func slowmo(real_seconds: float, scale: float) -> void:
 	slow_t = maxf(slow_t, real_seconds)
@@ -708,8 +712,8 @@ func _spawn_boss() -> void:
 	if pl > world.island_radius - 8.0:
 		p = Vector3(p.x, 0, p.z) * ((world.island_radius - 8.0) / pl)
 	# The serpent leaves the stage if it is still around.
-	if serpent.active and not serpent.dying and serpent.head and serpent.head.alive:
-		em.damage(serpent.head, serpent.head.hp + 1.0)
+	if serpent.active and not serpent.dying:
+		serpent.retreat()
 	var e = em.spawn(EnemyManager.BOSS, p)
 	# Provisional HP; _boss_calibrate resizes it from damage actually landed on the boss.
 	e.max_hp = 20000.0
@@ -770,7 +774,7 @@ void fragment() {
 	for k in 6:
 		fx.dust(p + Vector3(randf_range(-4, 4), 0, randf_range(-4, 4)), 10)
 	for o in em.query(pp, 26.0):
-		if o.type == EnemyManager.BOSS or o.type == EnemyManager.CRYSTAL:
+		if _is_big(o) or o.type == EnemyManager.CRYSTAL:
 			continue
 		var away: Vector3 = o.pos - pp
 		away.y = 0
@@ -1034,7 +1038,7 @@ func _light_shrine(s: Dictionary) -> void:
 	Sfx.play("shrine", Vector3.INF, 1.0, 0.0)
 	shake(0.25)
 	for e in em.query(p, 12.0):
-		if e.type != EnemyManager.BOSS:
+		if not _is_big(e):
 			em.damage(e, 9999.0)
 	var msg := ""
 	match shrines_lit:
@@ -1056,7 +1060,7 @@ func _light_shrine(s: Dictionary) -> void:
 			st.cd *= 0.9
 			msg = "Son Fener: +%15 hasar, -%10 bekleme"
 	player.heal(40.0)
-	toast("Fener yandı! " + msg + ". Işığında canın dolar.", 4.5)
+	toast("Fener yandı! " + msg.trim_suffix("!") + ". Işığında canın dolar.", 4.5)
 
 # ---------------------------------------------------------------- xp, level-ups
 
@@ -1292,7 +1296,8 @@ func choose(c: Dictionary) -> void:
 		pending_chest -= 1
 	elif pending_levels > 0:
 		pending_levels -= 1
-	if pending_chest > 0 or pending_levels > 0:
+	# After an evolution the cinematic plays first; _process reopens the rest.
+	if (pending_chest > 0 or pending_levels > 0) and not _cinematic():
 		cur_chest = pending_chest > 0
 		var ch := roll_choices(cur_chest)
 		if not ch.is_empty():
@@ -1341,7 +1346,7 @@ func _evolve_moment(id: String) -> void:
 	Sfx.play("evolve", Vector3.INF, 1.0, 0.0)
 	shake(0.5)
 	for e in em.query(pp, 14.0):
-		if e.type == EnemyManager.BOSS:
+		if _is_big(e):
 			continue
 		var away: Vector3 = e.pos - pp
 		away.y = 0
@@ -1435,9 +1440,11 @@ func _end_run(victory: bool) -> void:
 func _load_record() -> Dictionary:
 	var c := ConfigFile.new()
 	var d := {"best_time": 0.0, "best_kills": 0, "wins": 0, "runs": 0}
-	if c.load(RECORD_PATH) == OK:
+	if Settings.load_plain(c, RECORD_PATH) == OK:
 		for k in d.keys():
-			d[k] = c.get_value("r", k, d[k])
+			var v = c.get_value("r", k, d[k])
+			if v is int or v is float:
+				d[k] = maxf(0.0, float(v)) if d[k] is float else maxi(0, int(v))
 	return d
 
 func _save_record(victory: bool) -> bool:

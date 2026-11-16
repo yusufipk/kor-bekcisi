@@ -204,6 +204,8 @@ func query(p: Vector3, radius: float) -> Array:
 			for e in a:
 				if not e.alive or e.type == BOSS:
 					continue
+				if e.type == SEG and (e.link == null or not e.link.alive):
+					continue
 				var dx: float = e.pos.x - p.x
 				var dz: float = e.pos.z - p.z
 				var rr: float = radius + e.r
@@ -216,6 +218,8 @@ func nearest(p: Vector3, max_r: float, exclude: Array = []):
 	var bd := max_r * max_r
 	for e in enemies:
 		if not e.alive or e.type == CRYSTAL or (not exclude.is_empty() and exclude.has(e)):
+			continue
+		if e.type == SEG and (e.link == null or not e.link.alive):
 			continue
 		var d2: float = (e.pos.x - p.x) * (e.pos.x - p.x) + (e.pos.z - p.z) * (e.pos.z - p.z)
 		if d2 < bd:
@@ -299,6 +303,8 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 	var island_r: float = g.world.island_radius - 1.0
 	var py: float = player.position.y
 	for e in enemies:
+		if not e.alive:
+			continue  # killed earlier this frame (kese chain, weapons)
 		var d: Dictionary = TYPES[e.type]
 		var tx: float = player_pos.x - e.pos.x
 		var tz: float = player_pos.z - e.pos.z
@@ -544,6 +550,14 @@ func _update_bullets(dt: float, player_pos: Vector3, player: Node) -> void:
 			n += 1
 		i += 1
 	m.visible_instance_count = n
+
+## Remove without reward (victory crumble), keeping the horde count right.
+func dissolve(e) -> void:
+	if not e.alive:
+		return
+	e.alive = false
+	if not NOT_HORDE.has(e.type):
+		horde -= 1
 
 func clear_all() -> void:
 	for e in enemies:

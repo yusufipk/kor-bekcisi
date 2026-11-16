@@ -208,7 +208,7 @@ func _seg(a: Vector3, b: Vector3) -> void:
 	var t := Transform3D()
 	t.origin = (a + b) * 0.5
 	t = t.looking_at(b, Vector3.UP if absf((b - a).normalized().y) < 0.95 else Vector3.RIGHT)
-	t.basis = t.basis.scaled(Vector3(1, 1, len))
+	t.basis = t.basis * Basis.from_scale(Vector3(1, 1, len))
 	mi.transform = t
 
 func _process(dt: float) -> void:
@@ -365,7 +365,8 @@ void fragment() {
 	var d := dir.normalized()
 	var mid := p + d * length * 0.5 + Vector3(0, 0.07, 0)
 	var basis := Basis(Vector3.UP, atan2(d.x, d.z))
-	mi.transform = Transform3D(basis.scaled(Vector3(width, 1, length)), mid)
+	# Scale in local space, so the strip stretches along the charge direction.
+	mi.transform = Transform3D(basis * Basis.from_scale(Vector3(width, 1, length)), mid)
 	mi.visible = true
 	mi.set_meta("life", dur)
 	mi.set_meta("dur", dur)

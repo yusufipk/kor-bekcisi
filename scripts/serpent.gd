@@ -107,6 +107,22 @@ func on_killed() -> void:
 	g.shake(0.6)
 	Sfx.play("roar", Vector3.INF, 0.8, 0.0, 1.3)
 
+## Sink back into the ground with no reward (the boss is arriving).
+func retreat() -> void:
+	var g = Game.inst
+	if head:
+		g.fx.ring(head.pos, 6.0, Color(1.0, 0.4, 0.6), 0.5, 0.2, 0.2)
+		g.em.dissolve(head)
+	for s in segs:
+		g.em.dissolve(s)
+	for nd in seg_nodes:
+		nd.visible = false
+	if head_node:
+		head_node.visible = false
+	g.ui.show_boss_bar(false)
+	active = false
+	dying = false
+
 func _process(dt: float) -> void:
 	if not active:
 		return
