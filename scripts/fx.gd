@@ -142,7 +142,7 @@ func damage_number(p: Vector3, amount: float, crit: bool) -> void:
 	l.text = str(int(round(amount)))
 	l.position = p + Vector3(randf_range(-0.4, 0.4), 0, randf_range(-0.4, 0.4))
 	l.modulate = Color(1.0, 0.9, 0.3) if crit else Color(1, 1, 1)
-	l.font_size = 46 if crit else 30
+	l.font_size = 44 if crit else 24
 	l.visible = true
 	l.set_meta("life", 0.7)
 	l.set_meta("vy", 2.6 if crit else 1.8)

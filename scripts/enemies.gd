@@ -159,15 +159,22 @@ func _rebuild_grid() -> void:
 ## Enemies whose body overlaps a circle (xz plane).
 func query(p: Vector3, radius: float) -> Array:
 	var out: Array = []
-	var cr := ceili((radius + 2.7) / CELL)
+	# Pad by the largest horde radius (elite brute); the boss is checked apart.
+	var cr := ceili((radius + 1.8) / CELL)
 	var c := _cell(p)
+	if boss != null and boss.alive:
+		var bx: float = boss.pos.x - p.x
+		var bz: float = boss.pos.z - p.z
+		var br: float = radius + boss.r
+		if bx * bx + bz * bz <= br * br:
+			out.append(boss)
 	for x in range(c.x - cr, c.x + cr + 1):
 		for z in range(c.y - cr, c.y + cr + 1):
 			var a = grid.get(Vector2i(x, z))
 			if a == null:
 				continue
 			for e in a:
-				if not e.alive:
+				if not e.alive or e.type == BOSS:
 					continue
 				var dx: float = e.pos.x - p.x
 				var dz: float = e.pos.z - p.z
@@ -189,11 +196,14 @@ func nearest(p: Vector3, max_r: float, exclude: Array = []):
 	return best
 
 ## Returns true if the hit killed the enemy.
-func damage(e, amount: float, knock: Vector3 = Vector3.ZERO, crit := false) -> bool:
+## flash < 1 for damage-over-time sources so crowds in fire do not glow white.
+func damage(e, amount: float, knock: Vector3 = Vector3.ZERO, crit := false, flash := 1.0) -> bool:
 	if not e.alive:
 		return false
+	# Count effective damage only, so overkill does not inflate stats.
+	var dealt := minf(amount, e.hp)
 	e.hp -= amount
-	e.flash = 1.0
+	e.flash = maxf(e.flash, flash)
 	var weight := 1.0
 	if e.type == BRUTE: weight = 3.5
 	if e.elite: weight *= 3.0
@@ -201,7 +211,9 @@ func damage(e, amount: float, knock: Vector3 = Vector3.ZERO, crit := false) -> b
 	e.vel += knock / weight
 	var g = Game.inst
 	g.fx.damage_number(e.pos + Vector3(0, 1.5 + TYPES[e.type]["fly"] + (3.0 if e.type == BOSS else 0.0), 0), amount, crit)
-	g.stats_total_damage += amount
+	g.stats_total_damage += dealt
+	if e.type == BOSS:
+		g.on_boss_hit(dealt)
 	if e.hp <= 0.0:
 		_kill(e)
 		return true
@@ -320,7 +332,7 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 		if pl > island_r:
 			e.pos.x *= island_r / pl
 			e.pos.z *= island_r / pl
-		e.flash = maxf(0.0, e.flash - dt * 7.0)
+		e.flash = maxf(0.0, e.flash - dt * 10.0)
 		e.slow_t -= dt
 		e.orbit_cd -= dt
 		e.trail_cd -= dt
@@ -347,6 +359,7 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 			var ov = boss_node.get_meta("overlay", null)
 			if ov:
 				ov.set_shader_parameter("flash", e.flash)
+				ov.set_shader_parameter("warn", g.boss_warn)
 	for ti in range(4):
 		var m: MultiMesh = mm[ti].multimesh
 		m.visible_instance_count = counts[ti]

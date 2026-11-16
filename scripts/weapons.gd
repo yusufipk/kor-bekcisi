@@ -110,11 +110,11 @@ func _dmg(base: float) -> Array:
 	var crit: bool = randf() < st.crit
 	return [base * st.dmg * (2.2 if crit else 1.0), crit]
 
-func _hit(e, base: float, knock: Vector3) -> bool:
+func _hit(e, base: float, knock: Vector3, flash := 1.0) -> bool:
 	var r := _dmg(base)
 	if r[1]:
 		Game.inst.hitstop(0.025)
-	return em.damage(e, r[0], knock, r[1])
+	return em.damage(e, r[0], knock, r[1], flash)
 
 func update(dt: float, player) -> void:
 	var st = Game.inst.st
@@ -231,7 +231,8 @@ func _fire(id: String, l: int, player, st) -> float:
 
 func _nova(pp: Vector3, l: int, st, delay: float) -> void:
 	if delay > 0.0:
-		get_tree().create_timer(delay, false).timeout.connect(func(): _nova(Game.inst.player.global_position, l, st, 0.0))
+		# Bound method: the connection is dropped if this run is torn down first.
+		get_tree().create_timer(delay, false).timeout.connect(_nova_later.bind(l))
 		return
 	var r = 5.5 * (1.25 if l >= 2 else 1.0) * (1.25 if l >= 5 else 1.0) * st.area
 	var dmg := 22.0 * (1.4 if l >= 3 else 1.0) * (1.6 if l >= 7 else 1.0) * _aw(l)
@@ -241,6 +242,9 @@ func _nova(pp: Vector3, l: int, st, delay: float) -> void:
 		var away: Vector3 = e.pos - pp
 		away.y = 0
 		_hit(e, dmg, away.normalized() * 16.0)
+
+func _nova_later(l: int) -> void:
+	_nova(Game.inst.player.global_position, l, Game.inst.st, 0.0)
 
 func _update_bolts(dt: float) -> void:
 	var m := bolt_mm.multimesh
@@ -398,7 +402,7 @@ func _update_trail(dt: float, player, st) -> void:
 				if e.trail_cd > 0.0 or e.fly > 0.5:
 					continue
 				e.trail_cd = 0.45
-				_hit(e, dmg, Vector3.ZERO)
+				_hit(e, dmg, Vector3.ZERO, 0.35)
 		if n < 260:
 			var r: float = pt["r"]
 			m.set_instance_transform(n, Transform3D(Basis().scaled(Vector3(r, 1, r)), pt["p"]))

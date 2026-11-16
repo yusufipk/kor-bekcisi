@@ -43,7 +43,7 @@ func _ready() -> void:
 		if not streams.has(k):
 			streams[k] = _synth_sweep(400.0, 200.0, 0.1, 0.4)
 
-func play(name: String, pos: Vector3 = Vector3.INF, vol := 1.0, pitch_var := 0.12) -> void:
+func play(name: String, pos: Vector3 = Vector3.INF, vol := 1.0, pitch_var := 0.12, pitch := 1.0) -> void:
 	var s = streams.get(name)
 	if s == null:
 		return
@@ -60,7 +60,7 @@ func play(name: String, pos: Vector3 = Vector3.INF, vol := 1.0, pitch_var := 0.1
 	voice_i = (voice_i + 1) % VOICES
 	p.stream = s
 	p.volume_db = db
-	p.pitch_scale = randf_range(1.0 - pitch_var, 1.0 + pitch_var)
+	p.pitch_scale = pitch * randf_range(1.0 - pitch_var, 1.0 + pitch_var)
 	p.play()
 
 func _wav(data: PackedFloat32Array) -> AudioStreamWAV:

@@ -492,17 +492,22 @@ func _card(c: Dictionary, i: int) -> Button:
 	if is_w and cur + 1 >= Upgrades.WEAPON_MAX:
 		tag_txt = "  Uyanış"
 		sb.border_color = Color(1.0, 0.85, 0.3)
+		sbh.border_color = Color(1.0, 0.85, 0.3)
 	var tag := _label(tag_txt, 18, Color(1, 0.9, 0.5) if cur == 0 or tag_txt == "  Uyanış" else Color(0.8, 0.8, 0.9))
 	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(tag)
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(gap)
+	var key := _label(str(i + 1), 20, Color(1, 1, 1, 0.45))
+	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(key)
 	var desc := _label(Upgrades.level_text(id, cur + 1), 19)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc.custom_minimum_size.x = 220
 	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(desc)
-	var key := _label("[%d]" % (i + 1), 16, Color(1, 1, 1, 0.55))
-	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(key)
 	return b
 
 func _pick(i: int) -> void:

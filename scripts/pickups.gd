@@ -162,9 +162,8 @@ func update(dt: float, player) -> void:
 				g.add_xp(g_val[i])
 				pickup_combo += 1
 				combo_t = 0.4
-				Sfx.play("pickup", Vector3.INF, 0.8, 0.0)
-				var pl: AudioStreamPlayer = Sfx.players[(Sfx.voice_i - 1 + Sfx.VOICES) % Sfx.VOICES]
-				pl.pitch_scale = 1.0 + minf(pickup_combo, 24) * 0.035
+				# Pitch climbs with a pickup streak.
+				Sfx.play("pickup", Vector3.INF, 0.8, 0.0, 1.0 + minf(pickup_combo, 24) * 0.035)
 				var last := g_count - 1
 				g_pos[i] = g_pos[last]; g_val[i] = g_val[last]; g_fly[i] = g_fly[last]; g_spd[i] = g_spd[last]
 				g_count -= 1

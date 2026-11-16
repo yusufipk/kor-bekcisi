@@ -77,6 +77,10 @@ var boss_attack_t := 0.0
 var boss_target := Vector3.ZERO
 var boss_spawned := false
 var boss_dead_t := -1.0
+var boss_fight_t := 0.0
+var boss_taken := 0.0
+var boss_calibrated := false
+var boss_warn := 0.0
 
 # Shrines
 var shrines: Array = []   # {node, p, lit, charge, light}
@@ -110,7 +114,8 @@ func _ready() -> void:
 		n.process_mode = Node.PROCESS_MODE_PAUSABLE
 	ui = preload("res://scripts/ui.gd").new()
 	add_child(ui)
-	Settings.changed.connect(func(): world.apply_brightness(Settings.brightness))
+	# Bound method, so the connection dies with this scene on restart.
+	Settings.changed.connect(_on_settings_changed)
 	if demo:
 		bot = preload("res://scripts/bot.gd").new()
 		add_child(bot)
@@ -120,6 +125,9 @@ func _ready() -> void:
 		get_tree().paused = true
 		ui.show_title(_load_record())
 		_play_music("early")
+
+func _on_settings_changed() -> void:
+	world.apply_brightness(Settings.brightness)
 
 func _load_demo_cfg() -> void:
 	var c := ConfigFile.new()
@@ -148,11 +156,12 @@ void vertex() {
 void fragment() {
 	vec3 c = has_tex ? texture(tex, UV).rgb : base_col;
 	if (cd.y > 0.5) c = mix(c, vec3(1.0, 0.55, 0.15), 0.35);
-	if (cd.z > 0.5) c = mix(c, vec3(0.5, 0.8, 1.0), 0.45);
-	ALBEDO = mix(c, vec3(1.0), cd.x * 0.85);
+	if (cd.z > 0.5) c = mix(c, vec3(0.35, 0.6, 1.0), 0.22);
+	// Hit flash stays partial so big bodies keep their shape and colour.
+	ALBEDO = mix(c, vec3(1.0, 0.92, 0.9), cd.x * 0.45);
 	ROUGHNESS = 0.85;
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.5);
-	EMISSION = rim_col * rim * (0.9 + cd.y * 2.0) + vec3(1.0) * cd.x * 0.8;
+	EMISSION = rim_col * rim * (0.9 + cd.y * 2.0) + vec3(1.0, 0.8, 0.7) * cd.x * 0.25;
 }
 """
 	var m := ShaderMaterial.new()
@@ -360,8 +369,8 @@ func _process(dt: float) -> void:
 		events_done["demo_pause"] = true
 		pause()
 		return
-	enemy_dmg_mult = 1.0 + t / 420.0
-	em.hp_mult = 1.0 + t / 130.0 + pow(t / 300.0, 2.0)
+	enemy_dmg_mult = 1.0 + t / 600.0
+	em.hp_mult = 1.0 + t / 140.0 + pow(t / 320.0, 2.0)
 	var t0 := Time.get_ticks_usec()
 	_director(dt)
 	var t1 := Time.get_ticks_usec()
@@ -537,7 +546,11 @@ func _spawn_boss() -> void:
 	boss_spawned = true
 	var p := _spawn_pos(20.0, 24.0)
 	var e = em.spawn(EnemyManager.BOSS, p)
-	e.max_hp = 14000.0 * (1.0 + 0.03 * maxi(0, level - 30))
+	# Provisional HP; _boss_calibrate resizes it from damage actually landed on the boss.
+	e.max_hp = 20000.0
+	boss_fight_t = 0.0
+	boss_taken = 0.0
+	boss_calibrated = false
 	e.hp = e.max_hp
 	var node := Models.prop("res://art/models/boss.glb", 7.5)
 	if node == null:
@@ -555,9 +568,11 @@ func _spawn_boss() -> void:
 shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never;
 uniform float flash = 0.0;
+uniform float warn = 0.0;
 void fragment() {
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.0);
-	ALBEDO = vec3(1.0) * flash * 0.7 + vec3(1.0, 0.25, 0.6) * rim * 0.5;
+	float pulse = 0.6 + 0.4 * sin(TIME * 30.0);
+	ALBEDO = vec3(1.0, 0.85, 0.8) * flash * 0.3 + vec3(1.0, 0.1, 0.05) * warn * pulse * 0.9 + vec3(1.0, 0.25, 0.6) * rim * 0.5;
 }
 """
 	ov.shader = osh
@@ -579,6 +594,8 @@ void fragment() {
 
 ## Called by EnemyManager for the boss each frame. Returns a move speed factor.
 func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
+	_boss_calibrate(e, dt)
+	boss_warn = maxf(0.0, boss_warn - dt * 4.0)
 	var enraged: bool = e.hp < e.max_hp * 0.5
 	boss_timer -= dt
 	match boss_state:
@@ -632,7 +649,7 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 			return 0.3
 		"charge_wind":
 			boss_attack_t -= dt
-			e.flash = 1.0
+			boss_warn = 1.0
 			if Engine.get_process_frames() % 4 == 0:
 				fx.burst(e.pos + Vector3(0, 3.0, 0), Color(1.0, 0.3, 0.5), 3, 1.0)
 			if boss_attack_t <= 0.0:
@@ -662,6 +679,24 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 				_boss_next(enraged)
 			return 0.0
 	return 1.0
+
+## After 8 s of fighting, size the boss so the rest lasts about 50 s at the
+## damage rate this build actually lands on it (single-target damage differs
+## from horde damage by an order of magnitude, so it must be measured here).
+func _boss_calibrate(e, dt: float) -> void:
+	if boss_calibrated:
+		return
+	boss_fight_t += dt
+	if boss_fight_t < 8.0 and e.hp > e.max_hp * 0.25:
+		return
+	boss_calibrated = true
+	var rate := boss_taken / maxf(boss_fight_t, 0.1)
+	var total := maxf(9000.0, boss_taken + rate * 50.0)
+	e.max_hp = total
+	e.hp = total - boss_taken
+
+func on_boss_hit(dealt: float) -> void:
+	boss_taken += dealt
 
 func _boss_next(enraged: bool) -> void:
 	boss_state = "walk"
@@ -766,7 +801,8 @@ func add_xp(v: float) -> void:
 ## Early levels come quickly so the first minute already feels like growth.
 static func xp_needed(lv: int) -> float:
 	var n := float(lv - 1)
-	return 4.0 + n * 3.5 + pow(n, 1.6)
+	# Steepens past ~35 so a snowballing build does not race into the hundreds.
+	return 4.0 + n * 3.5 + pow(n, 1.4) + pow(maxf(0.0, n - 35.0), 2.2)
 
 func open_chest(p: Vector3) -> void:
 	chests_opened += 1
@@ -900,7 +936,7 @@ func toast(msg: String, dur := 3.0) -> void:
 func on_player_died() -> void:
 	shake(0.6)
 	Sfx.play("roar", Vector3.INF, 0.5, 0.0)
-	get_tree().create_timer(1.4, true, false, true).timeout.connect(func(): _end_run(false))
+	get_tree().create_timer(1.4, true, false, true).timeout.connect(_end_run.bind(false))
 
 func _end_run(victory: bool) -> void:
 	if state == S_END:
