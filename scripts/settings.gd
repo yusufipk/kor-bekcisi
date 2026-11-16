@@ -70,11 +70,12 @@ static func load_plain(c: ConfigFile, path: String) -> Error:
 		return ERR_FILE_NOT_FOUND
 	var text := FileAccess.get_file_as_string(path)
 	# Allowlist, not a denylist: this game's saves hold only numbers, bools,
-	# strings, arrays and dictionaries, none of which need "(". Every Variant
-	# constructor does (Object, Resource, Vector3...), however it is spaced or
-	# commented, so with the quoted strings removed any "(" rejects the file.
-	var strings := RegEx.create_from_string("\"(?:[^\"\\\\]|\\\\.)*\"")
-	if strings.sub(text, "", true).contains("("):
+	# lowercase ids, untyped arrays and dictionaries, so no "(" appears anywhere,
+	# not even inside a string. Every Variant constructor needs one (Object,
+	# Resource, Vector3...), however it is spaced, commented or escaped, so any
+	# "(" in the raw text rejects the file. Typed containers (Array[String])
+	# would be written with "(", which is why meta.gd keeps them untyped.
+	if text.contains("("):
 		push_warning("Ignoring save with non-plain values: " + path)
 		return ERR_INVALID_DATA
 	return c.parse(text)

@@ -17,6 +17,8 @@ const UPGRADES := [
 ]
 
 var kor := 0
+# Keep these untyped: typed containers are saved as Array[String]([...]) and
+# Settings.load_plain refuses any save that contains "(".
 var ranks := {}
 var discovered: Array = []
 var start_weapon := "bolt"
