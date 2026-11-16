@@ -11,10 +11,10 @@ const VOICES := 24
 var players: Array = []
 var streams := {}
 var last_play := {}
-var min_gap := {"hit": 0.035, "kill": 0.04, "pickup": 0.03, "shoot": 0.06, "zap": 0.08, "nova": 0.1, "meteor": 0.08, "whoosh": 0.12, "hurt": 0.15}
+var min_gap := {"hit": 0.035, "kill": 0.04, "pickup": 0.03, "shoot": 0.06, "zap": 0.08, "nova": 0.1, "meteor": 0.08, "whoosh": 0.12, "hurt": 0.15, "explode": 0.06, "charge": 0.2}
 # Files in audio/sfx are normalised to about -18 LUFS (tools/sfx_norm.sh); music
 # plays at -16 LUFS. These offsets keep frequent sounds well under the music.
-var base_db := {"hit": -14.0, "kill": -12.0, "pickup": -8.0, "shoot": -20.0, "zap": -12.0, "nova": -9.0, "meteor": -9.0, "whoosh": -18.0, "hurt": -4.0, "levelup": -6.0, "chest": -4.0, "roar": -2.0, "slam": -4.0, "jump": -18.0, "slide": -14.0, "shrine": -6.0, "select": -12.0, "ui": -16.0}
+var base_db := {"hit": -14.0, "kill": -12.0, "pickup": -8.0, "shoot": -20.0, "zap": -12.0, "nova": -9.0, "meteor": -9.0, "whoosh": -18.0, "hurt": -4.0, "levelup": -6.0, "chest": -4.0, "roar": -2.0, "slam": -4.0, "jump": -18.0, "slide": -14.0, "shrine": -6.0, "select": -12.0, "ui": -16.0, "evolve": -3.0, "explode": -8.0, "charge": -8.0, "crystal": -7.0, "serpent": -4.0, "quake": -3.0}
 var voice_i := 0
 var listener_pos := Vector3.ZERO
 
@@ -25,7 +25,7 @@ func _ready() -> void:
 		p.bus = "SFX"
 		add_child(p)
 		players.append(p)
-	for n in ["hit", "kill", "pickup", "levelup", "hurt", "chest", "roar", "slam", "meteor", "zap", "nova"]:
+	for n in ["hit", "kill", "pickup", "levelup", "hurt", "chest", "roar", "slam", "meteor", "zap", "nova", "evolve", "explode", "charge", "crystal", "serpent", "quake"]:
 		var path := "res://audio/sfx/%s.ogg" % n
 		if ResourceLoader.exists(path):
 			streams[n] = load(path)
@@ -39,7 +39,11 @@ func _ready() -> void:
 	streams["shrine"] = _synth_chord()
 	if not streams.has("levelup"):
 		streams["levelup"] = _synth_chord()
-	for k in ["hit", "kill", "pickup", "levelup", "hurt", "chest", "roar", "slam", "meteor", "zap", "nova"]:
+	if not streams.has("evolve"):
+		streams["evolve"] = _synth_evolve()
+	if not streams.has("crystal"):
+		streams["crystal"] = _synth_crystal()
+	for k in ["hit", "kill", "pickup", "levelup", "hurt", "chest", "roar", "slam", "meteor", "zap", "nova", "explode", "charge", "crystal", "serpent", "quake"]:
 		if not streams.has(k):
 			streams[k] = _synth_sweep(400.0, 200.0, 0.1, 0.4)
 
@@ -122,4 +126,42 @@ func _synth_chord() -> AudioStreamWAV:
 			var on := clampf((t - k * 0.06) * 30.0, 0.0, 1.0)
 			v += sin(t * fr[k] * TAU) * on
 		d[i] = v * 0.12 * exp(-t * 2.5)
+	return _wav(d)
+
+## Rising sweep into a bright major chord: the evolution fanfare.
+func _synth_evolve() -> AudioStreamWAV:
+	var n := int(44100 * 1.8)
+	var d := PackedFloat32Array()
+	d.resize(n)
+	var ph := 0.0
+	var fr := [523.25, 659.25, 783.99, 1046.5, 1318.5]
+	for i in n:
+		var t := float(i) / 44100.0
+		var v := 0.0
+		if t < 0.5:
+			ph += lerpf(200.0, 1046.5, t / 0.5) / 44100.0
+			v += sin(ph * TAU) * 0.35 * (t / 0.5)
+		else:
+			var k := t - 0.5
+			for j in fr.size():
+				var on := clampf((k - j * 0.04) * 40.0, 0.0, 1.0)
+				v += sin(t * fr[j] * TAU) * on * 0.16 + sin(t * fr[j] * 2.0 * TAU) * on * 0.04
+			v *= exp(-k * 1.8)
+		d[i] = v
+	return _wav(d)
+
+## Glassy pings with a little noise: a crystal breaking.
+func _synth_crystal() -> AudioStreamWAV:
+	var n := int(44100 * 0.7)
+	var d := PackedFloat32Array()
+	d.resize(n)
+	var pings := [[0.0, 2349.0], [0.03, 3136.0], [0.07, 2637.0], [0.12, 3951.0], [0.18, 2093.0]]
+	for i in n:
+		var t := float(i) / 44100.0
+		var v := randf_range(-1.0, 1.0) * 0.25 * exp(-t * 30.0)
+		for p in pings:
+			if t >= p[0]:
+				var k: float = t - p[0]
+				v += sin(k * p[1] * TAU) * 0.2 * exp(-k * 9.0)
+		d[i] = v
 	return _wav(d)

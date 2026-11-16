@@ -23,12 +23,26 @@ func _process(dt: float) -> void:
 	if pick_t >= 0.0:
 		pick_t -= rdt
 		if pick_t < 0.0 and pending.size() > 0:
-			# Prefer weapon upgrades and damage, like a reasonable player.
+			# Evolutions first, then partner passives, then weapon upgrades.
 			var best = pending[0]
+			var score := -1.0
 			for c in pending:
-				if c["kind"] == "w" and g.weapons.level(c["id"]) > 0:
+				var sc := 0.0
+				match c["kind"]:
+					"e": sc = 100.0
+					"w": sc = 10.0 if g.weapons.level(c["id"]) > 0 else 6.0
+					"p":
+						var w := Upgrades.evolves_weapon(c["id"])
+						sc = 12.0 if w != "" and g.weapons.level(w) >= 3 and g.passives.get(c["id"], 0) == 0 else 4.0
+					_: sc = 1.0
+				if sc > score:
+					score = sc
 					best = c
-					break
+			# Spend a reroll on a weak hand, like a player would.
+			if score < 5.0 and g.rerolls > 0:
+				pending = []
+				g.reroll()
+				return
 			pending = []
 			g.choose(best)
 	if g.state == Game.S_END and g.demo_cfg.get("autoquit", false):
@@ -45,9 +59,25 @@ func _physics_process(dt: float) -> void:
 		var d: Vector3 = pp - e.pos
 		d.y = 0
 		var l := maxf(d.length(), 0.3)
-		var w: float = (3.0 if e.type == EnemyManager.BOSS else 1.0) / (l * l)
+		var big: bool = e.type == EnemyManager.BOSS or e.type == EnemyManager.SERPENT or e.type == EnemyManager.SEG or e.type == EnemyManager.BOYNUZ
+		if e.type == EnemyManager.CRYSTAL:
+			continue
+		var w: float = (3.0 if big else 1.0) / (l * l)
+		if e.type == EnemyManager.KESE and e.mode == 1:
+			w *= 4.0
 		steer += d / l * w * 6.0
 		danger += w
+	# Step sideways out of a charger's lane.
+	for e in g.em.query(pp, 20.0):
+		if e.type == EnemyManager.BOYNUZ and e.mode > 0:
+			var rel: Vector3 = pp - e.pos
+			rel.y = 0
+			var along: float = rel.dot(e.dir)
+			var side: Vector3 = rel - e.dir * along
+			if along > 0.0 and side.length() < 2.5:
+				var away: Vector3 = side.normalized() if side.length() > 0.1 else Vector3(-e.dir.z, 0, e.dir.x)
+				steer += away * 6.0
+				danger += 2.0
 	for b in g.em.bullets:
 		var d: Vector3 = pp - b[0]
 		d.y = 0

@@ -43,3 +43,23 @@
 11:52	kahraman klip bekleme (0)	3d_rigging	8	11671e7d-96fd-446c-af3c-b98a2f4e4cad
 11:52	kahraman klip zıplama (466)	3d_rigging	8	6cc55860-cb4f-465e-a106-4819acb10a70
 11:52	kahraman klip kayma (516)	3d_rigging	8	3ea57790-d751-494d-a5ca-8c453171419d
+14:10	A2 kor kesesi görseli	gpt_image_2_5 sunburst high 2k	2.75	f203cb48-4b90-4a14-908b-0e08b4e8e9ee
+14:10	A2 kül boynuzu görseli	gpt_image_2_5 sunburst high 2k	2.75	ae27da8e-c52f-4048-ae41-9bfe90083683
+14:10	A2 yılan başı görseli	gpt_image_2_5 sunburst high 2k	2.75	fd5767d2-d3e1-4262-b0c2-a53850611c67
+14:10	A2 yılan gövdesi görseli	gpt_image_2_5 sunburst high 2k	2.75	bca17275-14e9-4f9c-ba94-7e0c76b3f384
+14:10	A2 harabe kemer görseli	gpt_image_2_5 sunburst high 2k	2.75	113be9d2-8f1e-4909-942e-f19480929e98
+14:10	A2 kırık sütun görseli	gpt_image_2_5 sunburst high 2k	2.75	408b1e52-07d5-47d6-8a78-26a4d09be239
+14:10	A2 kehribar kristal görseli	gpt_image_2_5 sunburst high 2k	2.75	b4b84344-97d9-44b3-8b42-39f828fb8b93
+14:12	A2 kor kesesi 3D	hunyuan3d_v3 LowPoly	14	721ce18a-e2a9-465c-a452-2abfcb012964
+14:12	A2 kül boynuzu 3D	hunyuan3d_v3 LowPoly	14	895a9d80-a3f2-4c81-ab6b-4f199ded8964
+14:12	A2 yılan başı 3D	hunyuan3d_v3 LowPoly	14	d33c97bb-814e-4669-b2e6-26077a8763b3
+14:12	A2 yılan gövdesi 3D	hunyuan3d_v3 LowPoly	14	13177eff-c727-4cd8-b58b-d669e2dc5807
+14:12	A2 harabe kemer 3D	hunyuan3d_v3 LowPoly	14	d2ca2f44-4159-4e0c-8179-0403dd942c8a
+14:12	A2 kırık sütun 3D	hunyuan3d_v3 LowPoly	14	66b8cacb-f31b-4492-84be-131d009b14ea
+14:12	A2 kehribar kristal 3D	hunyuan3d_v3 LowPoly	14	da0cf9f6-397e-4700-b95d-9b9f59f88c77
+14:14	A2 sfx dönüşüm 2sn (neredeyse sessiz, kullanılmadı)	mirelo_text_to_audio	0.5	f7631abf-e93b-445b-a78e-8c90afb364c4
+14:14	A2 sfx patlama 1sn	mirelo_text_to_audio	0.25	7acd5f0a-fea8-4ebc-ba5c-b5bd180c7a1a
+14:14	A2 sfx hücum 1sn	mirelo_text_to_audio	0.25	609e67de-58b8-4d2f-9812-f55e009868a3
+14:14	A2 sfx kristal 1sn (neredeyse sessiz, kullanılmadı)	mirelo_text_to_audio	0.25	02c3ca8d-be6d-4c27-9924-b62aa5a11d34
+14:14	A2 sfx yılan 3sn	mirelo_text_to_audio	0.75	3d35378d-d3e8-4d9e-9414-33e022f09369
+14:14	A2 sfx deprem 3sn	mirelo_text_to_audio	0.75	a303ca68-a4c2-4490-8a35-0b457af7434f

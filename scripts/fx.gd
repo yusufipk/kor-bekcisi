@@ -23,6 +23,9 @@ var rings: Array = []
 var ring_i := 0
 var bolts: Array = []
 var bolt_i := 0
+var num_by_key := {}      # enemy instance id -> Label3D still showing its damage
+var num_budget := 0.0     # non-crit numbers allowed right now, refills over time
+var pillars: Array = []
 
 func _ready() -> void:
 	s_pos.resize(MAX_SHARDS); s_vel.resize(MAX_SHARDS); s_life.resize(MAX_SHARDS)
@@ -136,13 +139,33 @@ func dust(p: Vector3, n: int) -> void:
 		s_size[k] = 0.8
 		s_col[k] = Color(0.85, 0.9, 0.8)
 
-func damage_number(p: Vector3, amount: float, crit: bool) -> void:
+## Hits on the same enemy fold into one rising number, and plain hits are
+## rationed so a big crowd shows a readable handful instead of a wall.
+func damage_number(p: Vector3, amount: float, crit: bool, key := 0) -> void:
+	if key != 0 and num_by_key.has(key):
+		var old: Label3D = num_by_key[key]
+		if old.visible and old.get_meta("key", 0) == key and float(old.get_meta("life")) > 0.3:
+			var tot: float = float(old.get_meta("amt", 0.0)) + amount
+			old.set_meta("amt", tot)
+			old.text = str(int(round(tot)))
+			if crit:
+				old.modulate = Color(1.0, 0.9, 0.3)
+				old.font_size = 44
+			return
+	if not crit:
+		if num_budget < 1.0:
+			return
+		num_budget -= 1.0
 	var l: Label3D = nums[num_i]
 	num_i = (num_i + 1) % NUM_POOL
+	if key != 0:
+		num_by_key[key] = l
+	l.set_meta("key", key)
+	l.set_meta("amt", amount)
 	l.text = str(int(round(amount)))
 	l.position = p + Vector3(randf_range(-0.4, 0.4), 0, randf_range(-0.4, 0.4))
-	l.modulate = Color(1.0, 0.9, 0.3) if crit else Color(1, 1, 1)
-	l.font_size = 44 if crit else 24
+	l.modulate = Color(1.0, 0.9, 0.3) if crit else Color(1, 1, 1, 0.9)
+	l.font_size = 44 if crit else 22
 	l.visible = true
 	l.set_meta("life", 0.7)
 	l.set_meta("vy", 2.6 if crit else 1.8)
@@ -213,6 +236,21 @@ func _process(dt: float) -> void:
 		m.set_instance_color(i, s_col[i])
 		i += 1
 	m.visible_instance_count = s_count
+	num_budget = minf(num_budget + dt * 26.0, 8.0)
+	_update_lanes(dt)
+	if num_by_key.size() > 200:
+		num_by_key.clear()
+	for p in pillars:
+		if not p.visible:
+			continue
+		var pl: float = p.get_meta("life") - dt
+		p.set_meta("life", pl)
+		if pl <= 0.0:
+			p.visible = false
+			continue
+		var k := 1.0 - pl / 1.8
+		p.scale = Vector3(lerpf(0.3, 3.2, ease(k, 0.3)) * (1.0 - k * 0.6), 1.0 + k * 0.3, lerpf(0.3, 3.2, ease(k, 0.3)) * (1.0 - k * 0.6))
+		(p.material_override as ShaderMaterial).set_shader_parameter("alpha", (1.0 - k))
 	for l in nums:
 		if not l.visible:
 			continue
@@ -247,3 +285,98 @@ func _process(dt: float) -> void:
 		mi.set_meta("life", life)
 		if life <= 0.0:
 			mi.visible = false
+
+## A tall column of light, used when a weapon evolves.
+func pillar(p: Vector3, col: Color) -> void:
+	var mi: MeshInstance3D = null
+	for x in pillars:
+		if not x.visible:
+			mi = x
+			break
+	if mi == null:
+		mi = MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 1.0
+		cm.bottom_radius = 1.0
+		cm.height = 40.0
+		cm.radial_segments = 16
+		cm.rings = 1
+		cm.cap_top = false
+		cm.cap_bottom = false
+		mi.mesh = cm
+		var sh := Shader.new()
+		sh.code = """
+shader_type spatial;
+render_mode unshaded, blend_add, depth_draw_never, cull_disabled;
+uniform vec4 col : source_color = vec4(1.0);
+uniform float alpha = 1.0;
+void fragment() {
+	float fade = smoothstep(1.0, 0.1, UV.y) * smoothstep(0.0, 0.05, UV.y);
+	float band = 0.75 + 0.25 * sin(UV.x * 40.0 + TIME * 6.0);
+	ALBEDO = col.rgb * 2.5;
+	ALPHA = clamp(fade * band * alpha, 0.0, 1.0);
+}
+"""
+		var sm := ShaderMaterial.new()
+		sm.shader = sh
+		mi.material_override = sm
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		pillars.append(mi)
+	mi.position = p + Vector3(0, 20.0, 0)
+	mi.visible = true
+	mi.set_meta("life", 1.8)
+	(mi.material_override as ShaderMaterial).set_shader_parameter("col", col)
+
+var lanes: Array = []
+
+## A straight warning strip on the ground (charger paths).
+func lane(p: Vector3, dir: Vector3, length: float, width: float, dur: float) -> void:
+	var mi: MeshInstance3D = null
+	for x in lanes:
+		if not x.visible:
+			mi = x
+			break
+	if mi == null:
+		mi = MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2(1, 1)
+		q.orientation = PlaneMesh.FACE_Y
+		mi.mesh = q
+		var sh := Shader.new()
+		sh.code = """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never;
+uniform float k = 0.0;
+void fragment() {
+	float edge = smoothstep(0.0, 0.12, UV.x) * smoothstep(1.0, 0.88, UV.x);
+	float fill = step(UV.y, k);
+	float arrows = step(0.5, fract(UV.y * 8.0 - TIME * 3.0));
+	ALBEDO = vec3(1.0, 0.15, 0.2);
+	ALPHA = clamp(edge * (0.18 + fill * 0.35 + arrows * 0.12), 0.0, 1.0);
+}
+"""
+		var sm := ShaderMaterial.new()
+		sm.shader = sh
+		mi.material_override = sm
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		lanes.append(mi)
+	var d := dir.normalized()
+	var mid := p + d * length * 0.5 + Vector3(0, 0.07, 0)
+	var basis := Basis(Vector3.UP, atan2(d.x, d.z))
+	mi.transform = Transform3D(basis.scaled(Vector3(width, 1, length)), mid)
+	mi.visible = true
+	mi.set_meta("life", dur)
+	mi.set_meta("dur", dur)
+
+func _update_lanes(dt: float) -> void:
+	for mi in lanes:
+		if not mi.visible:
+			continue
+		var life: float = mi.get_meta("life") - dt
+		mi.set_meta("life", life)
+		if life <= 0.0:
+			mi.visible = false
+			continue
+		(mi.material_override as ShaderMaterial).set_shader_parameter("k", 1.0 - life / float(mi.get_meta("dur")))

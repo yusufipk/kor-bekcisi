@@ -39,13 +39,22 @@ var stats_total_damage := 0.0
 var stats_damage_taken := 0.0
 var chests_opened := 0
 var shrines_lit := 0
+var crystals_broken := 0
+var serpent_killed := false
 var enemy_dmg_mult := 1.0
 var won := false
+var rerolls := 1
+var evolved: Array = []          # weapon ids evolved this run, in order
+var weapon_damage := {}          # weapon id -> damage dealt this run
+var cur_chest := false           # the open card set came from a chest
+var dmg_src := ""                # set by Weapons around each hit
 var demo := false
 var demo_cfg := {}
 var prof := [0, 0, 0, 0, 0, 0]
 
 var world: World
+var serpent  # scripts/serpent.gd
+var crystal_t := 30.0
 var player
 var em: EnemyManager
 var weapons: Weapons
@@ -63,6 +72,18 @@ var cam_yaw := 0.0
 var cam_pitch := -0.62
 var trauma := 0.0
 var hitstop_t := 0.0
+var evo_t := 0.0             # evolution camera pull-in, real seconds left
+var slow_t := 0.0            # cinematic slow motion, real seconds left
+var slow_scale := 1.0
+var cam_look = null          # Vector3 the camera turns toward during cinematics
+var boss_phase := 1
+var boss_rain: Array = []    # [pos, t] ash meteors in flight
+var boss_fissures: Array = []  # [origin, dir, t]
+var boss_intro_t := 0.0
+var crumble: Array = []      # enemies dissolving after the boss falls
+var cam_dist := 11.0
+var lamp: OmniLight3D
+var dawn_k := 0.0
 
 # Director
 var spawn_t := 0.0
@@ -110,7 +131,11 @@ func _ready() -> void:
 	_setup_player()
 	_setup_camera()
 	_setup_shrines()
-	for n in [world, fx, em, pickups, weapons, player]:
+	serpent = preload("res://scripts/serpent.gd").new()
+	add_child(serpent)
+	for i in 8:
+		_grow_crystal()
+	for n in [world, fx, em, pickups, weapons, player, serpent]:
 		n.process_mode = Node.PROCESS_MODE_PAUSABLE
 	ui = preload("res://scripts/ui.gd").new()
 	add_child(ui)
@@ -147,6 +172,8 @@ uniform sampler2D tex : source_color, filter_linear_mipmap;
 uniform bool has_tex = false;
 uniform vec3 base_col : source_color = vec3(0.35, 0.28, 0.42);
 uniform vec3 rim_col : source_color = vec3(1.0, 0.25, 0.85);
+uniform float inner_glow = 0.0;
+global uniform float night;
 varying vec4 cd;
 void vertex() {
 	cd = INSTANCE_CUSTOM;
@@ -161,7 +188,8 @@ void fragment() {
 	ALBEDO = mix(c, vec3(1.0, 0.92, 0.9), cd.x * 0.45);
 	ROUGHNESS = 0.85;
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.5);
-	EMISSION = rim_col * rim * (0.9 + cd.y * 2.0) + vec3(1.0, 0.8, 0.7) * cd.x * 0.25;
+	// At night the rim and cracks glow harder so the horde stays readable.
+	EMISSION = rim_col * rim * (0.9 + cd.y * 2.0 + night * 0.6) + vec3(1.0, 0.8, 0.7) * cd.x * 0.25 + c * inner_glow * (0.5 + night);
 }
 """
 	var m := ShaderMaterial.new()
@@ -173,33 +201,38 @@ void fragment() {
 	return m
 
 func _setup_enemy_visuals() -> void:
-	var files := ["bocek", "guve", "hantal", "tukurgec"]
-	var heights := [0.9, 0.8, 2.3, 1.5]
-	var rims := [Color(1.0, 0.3, 0.85), Color(1.0, 0.35, 0.95), Color(0.9, 0.3, 0.8), Color(1.0, 0.45, 0.6)]
-	var meshes: Array = []
-	var mats: Array = []
-	for i in 4:
-		var r := Models.merged_mesh("res://art/models/%s.glb" % files[i], heights[i], PI if i == 1 else 0.0)
+	# type -> [file, height, yaw, rim colour]
+	var spec := {
+		EnemyManager.CRAWLER: ["bocek", 0.9, 0.0, Color(1.0, 0.3, 0.85)],
+		EnemyManager.MOTH: ["guve", 0.8, PI, Color(1.0, 0.35, 0.95)],
+		EnemyManager.BRUTE: ["hantal", 2.3, 0.0, Color(0.9, 0.3, 0.8)],
+		EnemyManager.SPITTER: ["tukurgec", 1.5, 0.0, Color(1.0, 0.45, 0.6)],
+		EnemyManager.KESE: ["kese", 1.3, 0.0, Color(1.0, 0.45, 0.25)],
+		EnemyManager.BOYNUZ: ["boynuz", 1.7, -PI * 0.5, Color(1.0, 0.25, 0.7)],
+		EnemyManager.CRYSTAL: ["kristal", 1.8, 0.0, Color(1.0, 0.7, 0.25)],
+	}
+	var meshes := {}
+	var mats := {}
+	for ti in spec.keys():
+		var sp: Array = spec[ti]
+		var r := Models.merged_mesh("res://art/models/%s.glb" % sp[0], sp[1], sp[2])
 		if r.is_empty():
-			var pm: Mesh
-			match i:
-				0:
-					pm = SphereMesh.new(); pm.radius = 0.5; pm.height = 0.8; pm.radial_segments = 7; pm.rings = 3
-				1:
-					pm = PrismMesh.new(); pm.size = Vector3(1.4, 0.3, 0.6)
-				2:
-					pm = BoxMesh.new(); pm.size = Vector3(1.8, 2.0, 1.4)
-				3:
-					pm = CylinderMesh.new(); pm.top_radius = 0.3; pm.bottom_radius = 0.7; pm.height = 1.4
+			var pm := SphereMesh.new()
+			pm.radius = 0.5
+			pm.height = 0.9
+			pm.radial_segments = 7
+			pm.rings = 3
 			# Placeholder meshes are centred; lift so the base sits on the ground.
 			var stf := SurfaceTool.new()
-			stf.append_from(pm, 0, Transform3D(Basis(), Vector3(0, pm.get_aabb().size.y * 0.5, 0)))
-			meshes.append(stf.commit())
-			mats.append(_enemy_material(null, rims[i]))
+			stf.append_from(pm, 0, Transform3D(Basis(), Vector3(0, 0.45, 0)))
+			meshes[ti] = stf.commit()
+			mats[ti] = _enemy_material(null, sp[3])
 		else:
-			meshes.append(r[0])
-			mats.append(_enemy_material(r[1], rims[i]))
-	em.setup(meshes, mats, [1.0, 1.0, 1.0, 1.0])
+			meshes[ti] = r[0]
+			mats[ti] = _enemy_material(r[1], sp[3])
+	# Crystals glow from inside, more so at night.
+	mats[EnemyManager.CRYSTAL].set_shader_parameter("inner_glow", 0.6)
+	em.setup(meshes, mats)
 
 func _setup_player() -> void:
 	player = CharacterBody3D.new()
@@ -224,7 +257,7 @@ func _setup_player() -> void:
 		model.add_child(body)
 	model.set_meta("base_scale", 1.0)
 	# Warm lantern light that travels with the hero keeps them readable.
-	var lamp := OmniLight3D.new()
+	lamp = OmniLight3D.new()
 	lamp.light_color = Color(1.0, 0.75, 0.45)
 	lamp.light_energy = 1.6
 	lamp.omni_range = 7.0
@@ -360,17 +393,30 @@ func _process(dt: float) -> void:
 		hitstop_t -= dt / maxf(Engine.time_scale, 0.01)
 		if hitstop_t <= 0.0:
 			Engine.time_scale = float(demo_cfg.get("time_scale", 1.0)) if demo else 1.0
+	var real_dt := dt / maxf(Engine.time_scale, 0.01)
+	evo_t = maxf(0.0, evo_t - real_dt)
+	if slow_t > 0.0 and hitstop_t <= 0.0:
+		slow_t -= real_dt
+		var base_ts := float(demo_cfg.get("time_scale", 1.0)) if demo else 1.0
+		Engine.time_scale = base_ts * (slow_scale if slow_t > 0.0 else 1.0)
 	_update_camera(dt)
 	Sfx.listener_pos = player.global_position
 	if state != S_PLAY:
 		return
+	if won:
+		dawn_k = minf(1.0, dawn_k + dt * 0.35)
+	world.update_time(t, dawn_k)
+	world.follow(player.global_position)
+	lamp.light_energy = 1.6 + world.night * 1.4
+	lamp.omni_range = 7.0 + world.night * 6.0
 	t += dt
 	if demo and demo_cfg.has("pause_at") and t >= float(demo_cfg["pause_at"]) and not events_done.has("demo_pause"):
 		events_done["demo_pause"] = true
 		pause()
+		ui.hide_pause()  # demo freeze is for screenshots: keep the frame clean
 		return
 	enemy_dmg_mult = 1.0 + t / 600.0
-	em.hp_mult = 1.0 + t / 140.0 + pow(t / 320.0, 2.0)
+	em.hp_mult = 1.0 + t / 220.0 + pow(t / 400.0, 2.0)
 	var t0 := Time.get_ticks_usec()
 	_director(dt)
 	var t1 := Time.get_ticks_usec()
@@ -389,6 +435,12 @@ func _process(dt: float) -> void:
 			prof = [0, 0, 0, 0, 0, 0]
 	if boss_dead_t >= 0.0:
 		boss_dead_t -= dt
+		var n := mini(crumble.size(), 12)
+		for k in n:
+			var o = crumble.pop_back()
+			if o.alive:
+				o.alive = false
+				fx.burst(o.pos + Vector3(0, 0.8, 0), Color(1.0, 0.85, 0.5), 4, 1.0)
 		if boss_dead_t < 0.0:
 			_end_run(true)
 	ui.update_hud()
@@ -399,6 +451,19 @@ func _update_camera(dt: float) -> void:
 	cam_rig.position = cam_rig.position.lerp(target, minf(1.0, dt * 12.0))
 	cam_rig.rotation.y = cam_yaw
 	cam_pitch_node.rotation.x = cam_pitch
+	var rdt := dt / maxf(Engine.time_scale, 0.05)
+	var want := 11.0
+	if em.boss != null and em.boss.alive:
+		want = 14.5   # pull back so the giant fits in frame
+	if evo_t > 0.0:
+		want = 6.5
+	cam_dist = lerpf(cam_dist, want, minf(1.0, rdt * 3.0))
+	if cam_look != null:
+		var to: Vector3 = cam_look - player.global_position
+		if Vector2(to.x, to.z).length() > 0.5:
+			var yaw_to := atan2(-to.x, -to.z)
+			cam_yaw = lerp_angle(cam_yaw, yaw_to, minf(1.0, rdt * 3.5))
+	spring.spring_length = cam_dist
 	trauma = maxf(0.0, trauma - dt * 1.6)
 	var sh := trauma * trauma
 	var tt := Time.get_ticks_msec() * 0.001
@@ -410,6 +475,10 @@ func _update_camera(dt: float) -> void:
 		var vp := get_viewport().get_visible_rect().size
 		RenderingServer.global_shader_parameter_set("player_screen", cam.unproject_position(head) / vp)
 		RenderingServer.global_shader_parameter_set("player_depth", cam.global_position.distance_to(head))
+
+func slowmo(real_seconds: float, scale: float) -> void:
+	slow_t = maxf(slow_t, real_seconds)
+	slow_scale = scale
 
 func shake(amount: float) -> void:
 	trauma = minf(1.0, trauma + amount)
@@ -431,17 +500,21 @@ func _target_alive() -> float:
 	return 70.0  # during the boss: thinner support waves
 
 func _pick_type() -> int:
-	var w := [1.0, 0.0, 0.0, 0.0]
+	var types := [EnemyManager.CRAWLER, EnemyManager.MOTH, EnemyManager.BRUTE, EnemyManager.SPITTER, EnemyManager.KESE, EnemyManager.BOYNUZ]
+	var w := [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 	if t > 50.0: w[1] = 0.45
-	if t > 140.0: w[2] = 0.14 + minf(t / 3000.0, 0.12)
+	if t > 140.0: w[2] = 0.10 + minf(t / 4000.0, 0.10)
 	if t > 230.0: w[3] = 0.14
+	if t > 160.0: w[4] = 0.10 + minf((t - 160.0) / 4000.0, 0.08)
+	# Chargers are a threat to read, not a crowd: keep only a few at a time.
+	if t > 260.0 and em.count_type(EnemyManager.BOYNUZ) < 3 + int(t / 150.0): w[5] = 0.05
 	var tot := 0.0
 	for x in w: tot += x
 	var r := randf() * tot
-	for i in 4:
+	for i in w.size():
 		r -= w[i]
 		if r <= 0.0:
-			return i
+			return types[i]
 	return 0
 
 func _spawn_pos(dist_min := 22.0, dist_max := 30.0) -> Vector3:
@@ -491,6 +564,13 @@ func _director(dt: float) -> void:
 	_event(240.0, "swarm1")
 	_event(420.0, "swarm2")
 	_event(540.0, "swarm3")
+	crystal_t -= dt
+	if crystal_t <= 0.0:
+		crystal_t = 40.0
+		if em.count_type(EnemyManager.CRYSTAL) < 8:
+			_grow_crystal()
+	_event(290.0, "serpent_warn")
+	_event(300.0, "serpent")
 	_event(14.0, "tip_shrine")
 	_event(40.0, "tip_jump")
 	_event(270.0, "music_late")
@@ -535,6 +615,12 @@ func _event(at: float, id: String) -> void:
 		toast("✦ işaretli fenerin yanında 2 saniye dur: yanınca kalıcı güç verir.", 5.0)
 	elif id == "tip_jump":
 		toast("Sıkıştın mı? Shift ile kay, kayarken hasar almazsın.", 4.5)
+	elif id == "serpent_warn":
+		toast("Toprak kayıyor... bir şey yükseliyor!", 3.5)
+		shake(0.3)
+		Sfx.play("quake", Vector3.INF, 0.8, 0.0)
+	elif id == "serpent":
+		serpent.spawn(_spawn_pos(18.0, 22.0))
 	elif id == "music_late":
 		_play_music("late")
 	elif id == "boss_warn":
@@ -546,7 +632,15 @@ func _event(at: float, id: String) -> void:
 
 func _spawn_boss() -> void:
 	boss_spawned = true
-	var p := _spawn_pos(20.0, 24.0)
+	var pp: Vector3 = player.global_position
+	var fwd := Vector3(-sin(cam_yaw), 0, -cos(cam_yaw))
+	var p := pp + fwd * 17.0
+	var pl := Vector2(p.x, p.z).length()
+	if pl > world.island_radius - 8.0:
+		p = Vector3(p.x, 0, p.z) * ((world.island_radius - 8.0) / pl)
+	# The serpent leaves the stage if it is still around.
+	if serpent.active and not serpent.dying and serpent.head and serpent.head.alive:
+		em.damage(serpent.head, serpent.head.hp + 1.0)
 	var e = em.spawn(EnemyManager.BOSS, p)
 	# Provisional HP; _boss_calibrate resizes it from damage actually landed on the boss.
 	e.max_hp = 20000.0
@@ -554,7 +648,7 @@ func _spawn_boss() -> void:
 	boss_taken = 0.0
 	boss_calibrated = false
 	e.hp = e.max_hp
-	var node := Models.prop("res://art/models/boss.glb", 7.5)
+	var node := Models.prop("res://art/models/boss.glb", 9.5)
 	if node == null:
 		node = Node3D.new()
 		var mi := MeshInstance3D.new()
@@ -574,10 +668,12 @@ uniform float warn = 0.0;
 void fragment() {
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.0);
 	float pulse = 0.6 + 0.4 * sin(TIME * 30.0);
-	ALBEDO = vec3(1.0, 0.85, 0.8) * flash * 0.3 + vec3(1.0, 0.1, 0.05) * warn * pulse * 0.9 + vec3(1.0, 0.25, 0.6) * rim * 0.5;
+	ALBEDO = vec3(1.0, 0.85, 0.8) * flash * 0.1 + vec3(1.0, 0.1, 0.05) * warn * pulse * 0.9 + vec3(1.0, 0.25, 0.6) * rim * 0.5;
 }
 """
 	ov.shader = osh
+	# Thin out where it stands between the camera and the hero, like the props.
+	world.apply_fade(node)
 	for mi in node.find_children("*", "MeshInstance3D", true, false):
 		(mi as MeshInstance3D).material_overlay = ov
 	node.set_meta("overlay", ov)
@@ -590,15 +686,48 @@ void fragment() {
 	add_child(node)
 	em.boss_node = node
 	ui.show_boss_bar(true)
+	# Entrance: it rises out of the ground in slow motion, the camera turns to it
+	# and a shockwave clears the crowd around the hero.
+	node.position = Vector3(p.x, -10.0, p.z)
+	var tw := create_tween()
+	tw.tween_property(node, "position:y", 0.0, 1.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	boss_intro_t = 2.4
+	cam_look = p
+	slowmo(2.2, 0.35)
+	boss_phase = 1
+	boss_state = "walk"
+	boss_timer = 4.0
+	fx.ring(p, 16.0, Color(1.0, 0.3, 0.4), 0.8, 0.2, 0.3)
+	for k in 6:
+		fx.dust(p + Vector3(randf_range(-4, 4), 0, randf_range(-4, 4)), 10)
+	for o in em.query(pp, 26.0):
+		if o.type == EnemyManager.BOSS or o.type == EnemyManager.CRYSTAL:
+			continue
+		var away: Vector3 = o.pos - pp
+		away.y = 0
+		o.vel += away.normalized() * 30.0
+		em.damage(o, o.max_hp * 0.6)
+	Sfx.play("quake", Vector3.INF, 1.0, 0.0)
 	Sfx.play("roar", Vector3.INF, 1.0, 0.0)
-	shake(0.8)
-	toast("KÜL DEVİ", 3.0)
+	shake(0.9)
+	ui.banner("SON SAVAŞ", "Kül Devi", Color(1.0, 0.4, 0.5), 2.2)
 
 ## Called by EnemyManager for the boss each frame. Returns a move speed factor.
 func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 	_boss_calibrate(e, dt)
 	boss_warn = maxf(0.0, boss_warn - dt * 4.0)
-	var enraged: bool = e.hp < e.max_hp * 0.5
+	_boss_hazards(dt)
+	if boss_intro_t > 0.0:
+		boss_intro_t -= dt / maxf(Engine.time_scale, 0.05)
+		if boss_intro_t <= 0.0:
+			cam_look = null
+		return 0.0
+	var frac: float = e.hp / maxf(e.max_hp, 1.0)
+	var ph := 1 if frac > 0.66 else (2 if frac > 0.33 else 3)
+	if ph > boss_phase:
+		boss_phase = ph
+		_boss_phase_change(e, ph)
+	var enraged: bool = boss_phase >= 3
 	boss_timer -= dt
 	match boss_state:
 		"walk":
@@ -610,6 +739,15 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 				return 0.0
 			if boss_timer <= 0.0:
 				var r := randf()
+				if boss_phase >= 2 and r < 0.3:
+					boss_state = "rain" if randf() < 0.5 else "fissure"
+					boss_attack_t = 0.9
+					if boss_state == "rain":
+						_boss_rain()
+					else:
+						_boss_fissure(e)
+					return 0.0
+				r = randf()
 				if dist < 14.0 and r < 0.5:
 					boss_state = "slam"
 					boss_attack_t = 1.15
@@ -670,12 +808,18 @@ func boss_ai(e, dt: float, dist: float, dx: float, dz: float) -> float:
 				shake(0.3)
 				_boss_next(enraged)
 			return 0.0
+		"rain", "fissure":
+			boss_attack_t -= dt
+			if boss_attack_t <= 0.0:
+				_boss_next(enraged)
+			return 0.0
 		"summon":
 			boss_attack_t -= dt
 			if boss_attack_t <= 0.0:
 				for i in 10:
 					var a := TAU * i / 10.0
-					em.spawn(0 if i % 2 == 0 else 1, e.pos + Vector3(cos(a), 0, sin(a)) * 5.0)
+					var kind := EnemyManager.KESE if enraged and i % 3 == 0 else (0 if i % 2 == 0 else 1)
+					em.spawn(kind, e.pos + Vector3(cos(a), 0, sin(a)) * 5.0)
 				fx.ring(e.pos, 6.0, Color(0.8, 0.3, 1.0), 0.5, 0.2, 0.2)
 				_boss_next(enraged)
 			return 0.0
@@ -694,12 +838,93 @@ func _boss_calibrate(e, dt: float) -> void:
 		return
 	boss_calibrated = true
 	var rate := boss_taken / maxf(boss_fight_t, 0.1)
-	var total := maxf(9000.0, boss_taken + rate * 50.0)
+	var total := maxf(9000.0, boss_taken + rate * 62.0)
 	e.max_hp = total
 	e.hp = total - boss_taken
 
 func on_boss_hit(dealt: float) -> void:
 	boss_taken += dealt
+
+func _boss_phase_change(e, ph: int) -> void:
+	Sfx.play("roar", Vector3.INF, 1.0, 0.0, 0.85)
+	shake(0.6)
+	fx.ring(e.pos, 14.0, Color(1.0, 0.25, 0.3), 0.6, 0.15, 0.3)
+	var pp: Vector3 = player.global_position
+	for o in em.query(e.pos, 12.0):
+		if o.type != EnemyManager.BOSS:
+			o.vel += (o.pos - e.pos).normalized() * 18.0
+	boss_warn = 1.0
+	if ph == 2:
+		toast("Kül Devi gökten kül yağdırıyor! Kırmızı halkalardan çık.", 3.5)
+	else:
+		toast("Kül Devi öfkelendi!", 3.0)
+	boss_state = "walk"
+	boss_timer = 1.0
+	if pp.distance_to(e.pos) < 6.0:
+		player.velocity += (pp - e.pos).normalized() * 12.0
+
+## Ash meteors: a ring of telegraphs closing in on the hero, one after another.
+func _boss_rain() -> void:
+	var pp: Vector3 = player.global_position
+	Sfx.play("roar", Vector3.INF, 0.6, 0.1, 1.2)
+	var n := 12 if boss_phase < 3 else 16
+	for i in n:
+		var a := randf() * TAU
+		var d := randf_range(0.0, 9.0) if i % 3 != 0 else 0.0
+		var p := pp + Vector3(cos(a) * d, 0, sin(a) * d)
+		var delay := 0.9 + i * 0.12
+		fx.telegraph(p, 2.6, delay)
+		boss_rain.append([p, delay])
+
+## Fissures: lanes radiating from the boss, one aimed at the hero.
+func _boss_fissure(e) -> void:
+	var pp: Vector3 = player.global_position
+	var to: Vector3 = pp - e.pos
+	to.y = 0
+	var base := atan2(to.x, to.z)
+	var n := 5 if boss_phase < 3 else 7
+	for i in n:
+		var a := base + TAU * i / n
+		var d := Vector3(sin(a), 0, cos(a))
+		fx.lane(e.pos, d, 26.0, 2.4, 1.1)
+		boss_fissures.append([e.pos, d, 1.1])
+	Sfx.play("quake", Vector3.INF, 0.7, 0.05)
+
+func _boss_hazards(dt: float) -> void:
+	var pp: Vector3 = player.global_position
+	var i := 0
+	while i < boss_rain.size():
+		boss_rain[i][1] -= dt
+		if boss_rain[i][1] <= 0.0:
+			var p: Vector3 = boss_rain[i][0]
+			fx.ring(p, 2.6, Color(1.0, 0.35, 0.25), 0.3, 0.4, 0.2)
+			fx.burst(p + Vector3(0, 0.5, 0), Color(0.5, 0.4, 0.45), 10, 1.4)
+			fx.burst(p + Vector3(0, 0.5, 0), Color(1.0, 0.45, 0.2), 6, 1.2)
+			Sfx.play("meteor", p, 0.5)
+			if Vector2(pp.x - p.x, pp.z - p.z).length() < 2.6 and pp.y < 1.5:
+				player.hurt(20.0, p)
+			boss_rain.remove_at(i)
+			continue
+		i += 1
+	i = 0
+	while i < boss_fissures.size():
+		var f: Array = boss_fissures[i]
+		f[2] -= dt
+		if f[2] <= 0.0:
+			var o: Vector3 = f[0]
+			var d: Vector3 = f[1]
+			for k in 7:
+				fx.burst(o + d * (3.0 + k * 3.4) + Vector3(0, 0.3, 0), Color(1.0, 0.4, 0.2), 4, 1.4)
+			var rel: Vector3 = pp - o
+			rel.y = 0
+			var along: float = rel.dot(d)
+			var side: float = (rel - d * along).length()
+			if along > 0.0 and along < 26.0 and side < 1.2 and pp.y < 1.0:
+				player.hurt(26.0, pp - d)
+			boss_fissures.remove_at(i)
+			shake(0.15)
+			continue
+		i += 1
 
 func _boss_next(enraged: bool) -> void:
 	boss_state = "walk"
@@ -710,9 +935,14 @@ func _boss_next(enraged: bool) -> void:
 func _update_shrines(dt: float) -> void:
 	var pp: Vector3 = player.global_position
 	for s in shrines:
-		if s["lit"]:
-			continue
 		var d := Vector2(pp.x - s["p"].x, pp.z - s["p"].z).length()
+		if s["lit"]:
+			s["light"].light_energy = 5.0 + world.night * 4.0
+			s["light"].omni_range = 9.0 + world.night * 5.0
+			# A lit lantern is a safe pool of light: it heals while you stand in it.
+			if d < 7.0 and not player.dead:
+				player.heal(4.0 * dt)
+			continue
 		if d < 3.4:
 			s["charge"] += dt
 			s["light"].light_energy = 0.4 + s["charge"] * 2.0
@@ -757,25 +987,30 @@ func _light_shrine(s: Dictionary) -> void:
 			st.cd *= 0.9
 			msg = "Son Fener: +%15 hasar, -%10 bekleme"
 	player.heal(40.0)
-	toast("Fener yandı! " + msg, 4.0)
+	toast("Fener yandı! " + msg + ". Işığında canın dolar.", 4.5)
 
 # ---------------------------------------------------------------- xp, level-ups
 
 func on_enemy_killed(e) -> void:
 	if e.type == EnemyManager.BOSS:
 		kills += 1
-		boss_dead_t = 3.0
-		em.clear_all()
+		boss_dead_t = 5.5
 		won = true
 		ui.show_boss_bar(false)
-		for i in 6:
-			fx.burst(e.pos + Vector3(randf_range(-2, 2), randf_range(1, 6), randf_range(-2, 2)), Color(1.0, 0.5, 0.8), 40, 3.0)
-		Sfx.play("roar", Vector3.INF, 1.0, 0.0)
-		Sfx.play("slam", Vector3.INF, 1.0, 0.0)
+		# The whole horde turns to light, a few at a time.
+		crumble.clear()
+		for o in em.enemies:
+			if o.alive and o.type != EnemyManager.BOSS:
+				crumble.append(o)
+		em.bullets.clear()
+		boss_rain.clear()
+		boss_fissures.clear()
+		slowmo(2.6, 0.3)
+		cam_look = e.pos
+		evo_t = 2.2
+		Sfx.play("roar", Vector3.INF, 1.0, 0.0, 0.8)
 		shake(1.0)
-		if em.boss_node:
-			var tw := create_tween()
-			tw.tween_property(em.boss_node, "scale", Vector3(1.3, 0.05, 1.3), 1.2)
+		_boss_death_fx(e.pos, 0)
 		return
 	kills += 1
 	var v: int = em.TYPES[e.type]["xp"]
@@ -804,8 +1039,48 @@ func add_xp(v: float) -> void:
 ## Early levels come quickly so the first minute already feels like growth.
 static func xp_needed(lv: int) -> float:
 	var n := float(lv - 1)
-	# Steepens past ~35 so a snowballing build does not race into the hundreds.
-	return 4.0 + n * 3.5 + pow(n, 1.4) + pow(maxf(0.0, n - 35.0), 2.2)
+	# Steepens from level 15: slots are limited, so a run should top out around
+	# level 50 and evolutions land in the middle of the run.
+	return 4.0 + n * 3.5 + pow(n, 1.4) + 6.0 * pow(maxf(0.0, n - 14.0), 1.8)
+
+func _grow_crystal() -> void:
+	if world.crystal_spots.is_empty():
+		return
+	var pp: Vector3 = player.global_position if player else Vector3.ZERO
+	for tries in 6:
+		var p: Vector3 = world.crystal_spots[randi() % world.crystal_spots.size()]
+		if p.distance_to(pp) < 12.0:
+			continue
+		var taken := false
+		for e in em.enemies:
+			if e.alive and e.type == EnemyManager.CRYSTAL and e.pos.distance_to(p) < 3.0:
+				taken = true
+				break
+		if taken:
+			continue
+		var c = em.spawn(EnemyManager.CRYSTAL, p)
+		if c:
+			c.max_hp = 70.0 + t * 0.6
+			c.hp = c.max_hp
+			c.yaw = randf() * TAU
+		return
+
+## Amber crystals are the exploration reward: break one for a small jackpot.
+func on_crystal_broken(e) -> void:
+	var p: Vector3 = e.pos
+	crystals_broken += 1
+	fx.burst(p + Vector3(0, 1.0, 0), Color(1.0, 0.75, 0.25), 30, 2.2)
+	fx.ring(p, 4.0, Color(1.0, 0.8, 0.3), 0.4, 0.2, 0.2)
+	Sfx.play("crystal", p, 1.0, 0.1)
+	for i in 7:
+		pickups.gem(p + Vector3(randf_range(-2.2, 2.2), 0, randf_range(-2.2, 2.2)), 3 + int(t / 60.0))
+	var r := randf()
+	if r < 0.35:
+		pickups.item(p + Vector3(1.0, 0, 0), "heal")
+	elif r < 0.55:
+		pickups.item(p + Vector3(1.0, 0, 0), "magnet")
+	elif r < 0.68:
+		pickups.spawn_chest(p, Models.prop(chest_model_path, 1.1))
 
 func open_chest(p: Vector3) -> void:
 	chests_opened += 1
@@ -818,7 +1093,8 @@ func open_chest(p: Vector3) -> void:
 		_open_levelup(true)
 
 func _open_levelup(chest: bool) -> void:
-	var choices := roll_choices()
+	cur_chest = chest or pending_chest > 0
+	var choices := roll_choices(cur_chest)
 	if choices.is_empty():
 		pending_levels = 0
 		pending_chest = 0
@@ -833,21 +1109,42 @@ func _open_levelup(chest: bool) -> void:
 	if demo and bot:
 		bot.pick_soon(choices)
 
-func roll_choices() -> Array:
+## Weapon ids ready to evolve: max level, partner passive owned, not evolved yet.
+func evo_ready() -> Array:
+	var out: Array = []
+	for id in weapons.lv.keys():
+		if weapons.lv[id] == Upgrades.WEAPON_MAX and passives.get(Upgrades.EVOS[id]["partner"], 0) > 0:
+			out.append(id)
+	return out
+
+func roll_choices(chest := false) -> Array:
 	var pool: Array = []   # [id, kind, weight]
 	var owned := weapons.lv.size()
+	var owned_p := passives.size()
 	for id in Upgrades.WEAPONS.keys():
 		var l := weapons.level(id)
 		if l > 0 and l < Upgrades.WEAPON_MAX:
-			pool.append([id, "w", 3.0])
+			pool.append([id, "w", 2.2])
 		elif l == 0 and owned < Upgrades.MAX_WEAPONS:
 			pool.append([id, "w", 2.6 if owned < 3 else 1.4])
 	for id in Upgrades.PASSIVES.keys():
 		var l: int = passives.get(id, 0)
-		var cap := 2 if id == "amount" else Upgrades.PASSIVE_MAX
-		if l < cap:
-			pool.append([id, "p", 0.8 if id == "amount" else 1.6])
+		if l >= Upgrades.passive_cap(id):
+			continue
+		if l == 0 and owned_p >= Upgrades.MAX_PASSIVES:
+			continue
+		var w := 0.8 if id == "amount" else 1.6
+		# Nudge toward the partner of a weapon you already invest in.
+		var partner_of := Upgrades.evolves_weapon(id)
+		if partner_of != "" and weapons.level(partner_of) >= 4:
+			w *= 1.8
+		pool.append([id, "p", w])
 	var out: Array = []
+	# A chest always offers a ready evolution first.
+	if chest:
+		for id in evo_ready():
+			if out.size() < 3:
+				out.append({"id": id, "kind": "e"})
 	var need_new_weapon := owned < 2
 	while out.size() < 3 and pool.size() > 0:
 		var tot := 0.0
@@ -868,14 +1165,30 @@ func roll_choices() -> Array:
 				pick = fresh[randi() % fresh.size()]
 		out.append({"id": pool[pick][0], "kind": pool[pick][1]})
 		pool.remove_at(pick)
+	if out.is_empty():
+		out.append({"id": "filler", "kind": "x"})
 	return out
 
 func apply_choice(c: Dictionary) -> void:
 	var id: String = c["id"]
+	if c["kind"] == "x":
+		st.dmg *= 1.05
+		player.max_hp += 10.0
+		player.heal(10.0)
+		return
+	if c["kind"] == "e":
+		weapons.lv[id] = Upgrades.EVO_LEVEL
+		evolved.append(id)
+		_evolve_moment(id)
+		return
 	if c["kind"] == "w":
 		weapons.add_weapon(id)
 		if weapons.level(id) >= Upgrades.WEAPON_MAX and state != S_TITLE:
-			toast("%s uyandı! +%%40 hasar" % Upgrades.WEAPONS[id]["name"], 3.5)
+			var partner: String = Upgrades.EVOS[id]["partner"]
+			if passives.get(partner, 0) > 0:
+				toast("%s uyandı! Bir sandık onu dönüştürecek." % Upgrades.WEAPONS[id]["name"], 4.0)
+			else:
+				toast("%s uyandı! %s alırsan sandıkta dönüşür." % [Upgrades.WEAPONS[id]["name"], Upgrades.PASSIVES[partner]["name"]], 4.5)
 			fx.ring(player.global_position, 9.0, Color(1.0, 0.85, 0.3), 0.6, 0.2, 0.2)
 			fx.burst(player.global_position + Vector3(0, 1.2, 0), Color(1.0, 0.85, 0.3), 40, 2.0)
 			Sfx.play("shrine", Vector3.INF, 1.0, 0.0)
@@ -909,9 +1222,10 @@ func choose(c: Dictionary) -> void:
 	elif pending_levels > 0:
 		pending_levels -= 1
 	if pending_chest > 0 or pending_levels > 0:
-		var ch := roll_choices()
+		cur_chest = pending_chest > 0
+		var ch := roll_choices(cur_chest)
 		if not ch.is_empty():
-			ui.show_levelup(ch, pending_chest > 0)
+			ui.show_levelup(ch, cur_chest)
 			if demo and bot:
 				bot.pick_soon(ch)
 			return
@@ -933,6 +1247,39 @@ func choose(c: Dictionary) -> void:
 		away.y = 0
 		e.vel += away.normalized() * 14.0
 
+func reroll() -> void:
+	if state != S_LEVELUP or rerolls <= 0:
+		return
+	rerolls -= 1
+	Sfx.play("ui", Vector3.INF, 1.0, 0.0)
+	var ch := roll_choices(cur_chest)
+	ui.show_levelup(ch, cur_chest)
+	if demo and bot:
+		bot.pick_soon(ch)
+
+## The big beat of a run: slow time, pull the camera in, pillar of light.
+func _evolve_moment(id: String) -> void:
+	var evo: Dictionary = Upgrades.EVOS[id]
+	var pp: Vector3 = player.global_position
+	evo_t = 1.6
+	slowmo(1.6, 0.25)
+	fx.pillar(pp, evo["color"])
+	fx.ring(pp, 14.0, evo["color"], 0.8, 0.3, 0.25)
+	fx.ring(pp, 8.0, Color(1, 1, 1), 0.5, 0.2, 0.15)
+	fx.burst(pp + Vector3(0, 1.2, 0), evo["color"], 60, 3.0)
+	Sfx.play("evolve", Vector3.INF, 1.0, 0.0)
+	shake(0.5)
+	for e in em.query(pp, 14.0):
+		if e.type == EnemyManager.BOSS:
+			continue
+		var away: Vector3 = e.pos - pp
+		away.y = 0
+		e.vel += away.normalized() * 22.0
+		em.damage(e, 200.0 * st.dmg, Vector3.ZERO)
+	ui.banner("DÖNÜŞÜM", evo["name"], evo["color"])
+	if demo:
+		print("EVO %s t=%.0f lv=%d" % [id, t, level])
+
 func on_slide(p: Vector3, dir: Vector3) -> void:
 	weapons.on_slide(p, dir)
 
@@ -942,7 +1289,35 @@ func toast(msg: String, dur := 3.0) -> void:
 
 # ---------------------------------------------------------------- end
 
+## Bursts of light out of the falling giant, then the final blast at dawn.
+func _boss_death_fx(p: Vector3, step: int) -> void:
+	if step < 6:
+		var q := p + Vector3(randf_range(-2.5, 2.5), randf_range(2.0, 8.0), randf_range(-2.5, 2.5))
+		fx.burst(q, Color(1.0, 0.55, 0.85), 30, 2.6)
+		fx.burst(q, Color(1.0, 0.85, 0.5), 14, 2.0)
+		Sfx.play("explode", Vector3.INF, 0.9, 0.1, 0.8)
+		shake(0.35)
+		get_tree().create_timer(0.28, true, false, true).timeout.connect(_boss_death_fx.bind(p, step + 1))
+		return
+	fx.pillar(p, Color(1.0, 0.8, 0.5))
+	fx.ring(p, 30.0, Color(1.0, 0.85, 0.5), 1.0, 0.2, 0.3)
+	for i in 8:
+		fx.burst(p + Vector3(randf_range(-3, 3), randf_range(1, 8), randf_range(-3, 3)), Color(1.0, 0.6, 0.85), 40, 3.2)
+	Sfx.play("slam", Vector3.INF, 1.0, 0.0)
+	Sfx.play("quake", Vector3.INF, 1.0, 0.0)
+	shake(1.0)
+	if em.boss_node:
+		var tw := create_tween()
+		tw.tween_property(em.boss_node, "scale", Vector3(1.4, 0.02, 1.4), 1.0).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
+	ui.banner("ŞAFAK SÖKÜYOR", "Ada kurtuldu", Color(1.0, 0.85, 0.5), 2.5)
+	cam_look = null
+
 func on_player_died() -> void:
+	if demo:
+		var near := {}
+		for e in em.query(player.global_position, 5.0):
+			near[em.TYPES[e.type]["name"]] = near.get(em.TYPES[e.type]["name"], 0) + 1
+		print("DIED t=%.0f lv=%d near=%s build=%s %s" % [t, level, near, weapons.lv, passives])
 	shake(0.6)
 	Sfx.play("roar", Vector3.INF, 0.5, 0.0)
 	get_tree().create_timer(1.4, true, false, true).timeout.connect(_end_run.bind(false))

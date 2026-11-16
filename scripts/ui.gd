@@ -15,12 +15,17 @@ var lv_label: Label
 var time_label: Label
 var kill_label: Label
 var weapon_row: HBoxContainer
+var passive_row: HBoxContainer
+var banner_box: VBoxContainer
+var reroll_btn: Button
 var toast_label: Label
 var toast_t := 0.0
 var hint_label: Label
 var hint_t := 0.0
 var boss_box: Control
 var boss_bar: ProgressBar
+var boss_label: Label
+var bar_target = null
 var vignette: ColorRect
 var markers: Array = []
 var slide_bar: ProgressBar
@@ -143,11 +148,18 @@ void fragment() {
 	# HP bottom-left
 	var hpbox := VBoxContainer.new()
 	hpbox.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	hpbox.offset_left = 24; hpbox.offset_top = -96; hpbox.offset_right = 384; hpbox.offset_bottom = -20
+	hpbox.offset_left = 24; hpbox.offset_top = -140; hpbox.offset_right = 384; hpbox.offset_bottom = -20
 	hud.add_child(hpbox)
 	weapon_row = HBoxContainer.new()
 	weapon_row.add_theme_constant_override("separation", 8)
 	hpbox.add_child(weapon_row)
+	passive_row = HBoxContainer.new()
+	passive_row.add_theme_constant_override("separation", 6)
+	hpbox.add_child(passive_row)
+	for i in Upgrades.MAX_WEAPONS:
+		weapon_row.add_child(_badge("", Color.WHITE, 46))
+	for i in Upgrades.MAX_PASSIVES:
+		passive_row.add_child(_badge("", Color.WHITE, 32))
 	var hprow := HBoxContainer.new()
 	hpbox.add_child(hprow)
 	hp_bar = _bar(Color(0.95, 0.3, 0.32), Color(0, 0, 0, 0.5), 22)
@@ -174,9 +186,9 @@ void fragment() {
 	boss_box.offset_left = -360; boss_box.offset_right = 360; boss_box.offset_top = 82; boss_box.offset_bottom = 130
 	boss_box.visible = false
 	hud.add_child(boss_box)
-	var bl := _label("Kül Devi", 22, Color(1.0, 0.5, 0.75))
-	bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	boss_box.add_child(bl)
+	boss_label = _label("Kül Devi", 22, Color(1.0, 0.5, 0.75))
+	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_box.add_child(boss_label)
 	boss_bar = _bar(Color(0.95, 0.25, 0.6), Color(0, 0, 0, 0.55), 18)
 	boss_box.add_child(boss_bar)
 	for i in 8:
@@ -186,6 +198,14 @@ void fragment() {
 		m.size = Vector2(60, 34)
 		hud.add_child(m)
 		markers.append(m)
+	banner_box = VBoxContainer.new()
+	banner_box.set_anchors_preset(Control.PRESET_CENTER)
+	banner_box.offset_left = -500; banner_box.offset_right = 500; banner_box.offset_top = -190; banner_box.offset_bottom = -60
+	banner_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	banner_box.pivot_offset = Vector2(500, 65)
+	banner_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	banner_box.visible = false
+	hud.add_child(banner_box)
 	demo_label = _label("DEMO", 18, Color(0.6, 1.0, 1.0))
 	demo_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	demo_label.offset_left = -120; demo_label.offset_top = 60; demo_label.offset_right = -20
@@ -208,8 +228,10 @@ func toast(txt: String, dur := 3.0) -> void:
 	toast_label.text = txt
 	toast_t = dur
 
-func show_boss_bar(on: bool) -> void:
+func show_boss_bar(on: bool, title := "Kül Devi", target = null) -> void:
 	boss_box.visible = on
+	boss_label.text = title
+	bar_target = target
 
 func update_hud() -> void:
 	var p = g.player
@@ -231,29 +253,76 @@ func update_hud() -> void:
 	hint_t -= dt
 	hint_label.modulate.a = clampf(hint_t, 0.0, 1.0)
 	(vignette.material as ShaderMaterial).set_shader_parameter("amount", maxf(p.hurt_flash * 0.8, (1.0 - p.hp / p.max_hp) * 0.45 if p.hp < p.max_hp * 0.35 else 0.0))
-	if g.em.boss and g.em.boss.alive:
-		boss_bar.max_value = g.em.boss.max_hp
-		boss_bar.value = g.em.boss.hp
+	var bt = bar_target if bar_target != null else g.em.boss
+	if bt and bt.alive:
+		boss_bar.max_value = bt.max_hp
+		boss_bar.value = bt.hp
 	if Engine.get_process_frames() % 10 == 0:
 		_refresh_weapons()
 	_update_markers()
 
 func _refresh_weapons() -> void:
 	var ids: Array = g.weapons.lv.keys()
-	while weapon_row.get_child_count() < ids.size():
-		var l := _badge("", Color.WHITE, 42)
-		weapon_row.add_child(l)
-	for i in ids.size():
-		var id: String = ids[i]
-		var w: Dictionary = Upgrades.WEAPONS[id]
+	for i in Upgrades.MAX_WEAPONS:
 		var b: PanelContainer = weapon_row.get_child(i)
 		var lab: Label = b.get_child(0)
-		var lvl: int = g.weapons.lv[id]
-		lab.text = "%s%d" % [w["icon"], lvl] if lvl < Upgrades.WEAPON_MAX else "%s★" % w["icon"]
 		var sb := b.get_theme_stylebox("panel") as StyleBoxFlat
+		if i >= ids.size():
+			lab.text = ""
+			sb.bg_color = Color(1, 1, 1, 0.06)
+			sb.border_color = Color(1, 1, 1, 0.18)
+			sb.set_border_width_all(1)
+			continue
+		var id: String = ids[i]
+		var lvl: int = g.weapons.lv[id]
+		if lvl >= Upgrades.EVO_LEVEL:
+			var e: Dictionary = Upgrades.EVOS[id]
+			lab.text = e["icon"]
+			sb.bg_color = Color(e["color"], 0.55)
+			sb.border_color = Color(1.0, 0.95, 0.6)
+			sb.set_border_width_all(3)
+			continue
+		var w: Dictionary = Upgrades.WEAPONS[id]
+		lab.text = "%s%d" % [w["icon"], lvl] if lvl < Upgrades.WEAPON_MAX else "%s★" % w["icon"]
 		sb.bg_color = Color(w["color"], 0.35)
 		sb.border_color = Color(1.0, 0.85, 0.3)
 		sb.set_border_width_all(2 if lvl >= Upgrades.WEAPON_MAX else 0)
+	var pids: Array = g.passives.keys()
+	for i in Upgrades.MAX_PASSIVES:
+		var b: PanelContainer = passive_row.get_child(i)
+		var lab: Label = b.get_child(0)
+		var sb := b.get_theme_stylebox("panel") as StyleBoxFlat
+		if i >= pids.size():
+			lab.text = ""
+			sb.bg_color = Color(1, 1, 1, 0.06)
+			sb.border_color = Color(1, 1, 1, 0.18)
+			sb.set_border_width_all(1)
+			continue
+		var pid: String = pids[i]
+		lab.text = "%s%d" % [Upgrades.PASSIVES[pid]["icon"], g.passives[pid]]
+		sb.bg_color = Color(TEAL, 0.3)
+		sb.set_border_width_all(0)
+
+## Big centred announcement (evolutions, mini-boss, boss).
+func banner(top: String, main: String, col: Color, dur := 2.6) -> void:
+	for c in banner_box.get_children():
+		c.queue_free()
+	var a := _label(top, 30, col.lightened(0.3))
+	a.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	banner_box.add_child(a)
+	var b := _label(main, 76, col)
+	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.add_theme_constant_override("outline_size", 12)
+	banner_box.add_child(b)
+	banner_box.visible = true
+	banner_box.modulate.a = 0.0
+	banner_box.scale = Vector2(1.4, 1.4)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(banner_box, "modulate:a", 1.0, 0.2)
+	tw.tween_property(banner_box, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.chain().tween_interval(dur)
+	tw.chain().tween_property(banner_box, "modulate:a", 0.0, 0.5)
 
 func _badge(txt: String, col: Color, sz: int) -> PanelContainer:
 	var p := PanelContainer.new()
@@ -435,11 +504,23 @@ func _build_levelup() -> void:
 	lvl_cards.alignment = BoxContainer.ALIGNMENT_CENTER
 	lvl_cards.add_theme_constant_override("separation", 24)
 	v.add_child(lvl_cards)
+	reroll_btn = Button.new()
+	reroll_btn.custom_minimum_size = Vector2(300, 52)
+	reroll_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	reroll_btn.pressed.connect(func(): g.reroll())
+	v.add_child(reroll_btn)
 
 func show_levelup(choices: Array, chest: bool) -> void:
 	cur_choices = choices
 	lvl_layer.visible = true
-	lvl_title.text = "Hazine!" if chest else "Seviye %d" % g.level
+	var has_evo := false
+	for c in choices:
+		if c["kind"] == "e":
+			has_evo = true
+	lvl_title.text = "Dönüşüm hazır!" if has_evo else ("Hazine!" if chest else "Seviye %d" % g.level)
+	lvl_title.add_theme_color_override("font_color", Color(1.0, 0.9, 0.45) if has_evo else ACCENT)
+	reroll_btn.text = "Yeniden çek  [R]   ×%d" % g.rerolls
+	reroll_btn.visible = g.rerolls > 0
 	for c in lvl_cards.get_children():
 		c.queue_free()
 	for i in choices.size():
@@ -449,8 +530,14 @@ func show_levelup(choices: Array, chest: bool) -> void:
 
 func _card(c: Dictionary, i: int) -> Button:
 	var id: String = c["id"]
-	var is_w: bool = c["kind"] == "w"
-	var d: Dictionary = Upgrades.WEAPONS[id] if is_w else Upgrades.PASSIVES[id]
+	var kind: String = c["kind"]
+	var is_w: bool = kind == "w"
+	var d: Dictionary
+	match kind:
+		"w": d = Upgrades.WEAPONS[id]
+		"p": d = Upgrades.PASSIVES[id]
+		"e": d = Upgrades.EVOS[id]
+		_: d = Upgrades.FILLER
 	var cur: int = g.weapons.level(id) if is_w else g.passives.get(id, 0)
 	var col: Color = d.get("color", TEAL)
 	var b := Button.new()
@@ -493,7 +580,18 @@ func _card(c: Dictionary, i: int) -> Button:
 		tag_txt = "  Uyanış"
 		sb.border_color = Color(1.0, 0.85, 0.3)
 		sbh.border_color = Color(1.0, 0.85, 0.3)
-	var tag := _label(tag_txt, 18, Color(1, 0.9, 0.5) if cur == 0 or tag_txt == "  Uyanış" else Color(0.8, 0.8, 0.9))
+	if kind == "e":
+		tag_txt = "  Dönüşüm"
+		sb.bg_color = Color(0.32, 0.22, 0.1, 0.98)
+		sbh.bg_color = Color(0.45, 0.3, 0.12, 1.0)
+		sb.border_color = Color(1.0, 0.9, 0.45)
+		sbh.border_color = Color(1.0, 0.95, 0.6)
+		sb.set_border_width_all(5)
+		sbh.set_border_width_all(7)
+	elif kind == "x":
+		tag_txt = ""
+	var gold := cur == 0 or tag_txt == "  Uyanış" or kind == "e"
+	var tag := _label(tag_txt, 18, Color(1, 0.9, 0.5) if gold else Color(0.8, 0.8, 0.9))
 	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(tag)
 	var gap := Control.new()
@@ -503,7 +601,8 @@ func _card(c: Dictionary, i: int) -> Button:
 	var key := _label(str(i + 1), 20, Color(1, 1, 1, 0.45))
 	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(key)
-	var desc := _label(Upgrades.level_text(id, cur + 1), 19)
+	var txt: String = d["desc"] if kind == "e" or kind == "x" else Upgrades.level_text(id, cur + 1)
+	var desc := _label(txt, 19)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc.custom_minimum_size.x = 220
 	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -526,6 +625,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 			if ev.is_action_pressed("pick_%d" % (k + 1)):
 				_pick(k)
 				get_viewport().set_input_as_handled()
+		if ev.is_action_pressed("restart"):
+			g.reroll()
+			get_viewport().set_input_as_handled()
 
 # ------------------------------------------------------------------ pause
 
@@ -579,8 +681,13 @@ func _build_list(parent: Control) -> void:
 		c.queue_free()
 	parent.add_child(_label("Donanım", 28, ACCENT))
 	for id in g.weapons.lv.keys():
+		var lvl: int = g.weapons.lv[id]
+		if lvl >= Upgrades.EVO_LEVEL:
+			var e: Dictionary = Upgrades.EVOS[id]
+			parent.add_child(_row(e["icon"], e["name"], "Dönüştü", e["color"]))
+			continue
 		var w: Dictionary = Upgrades.WEAPONS[id]
-		parent.add_child(_row(w["icon"], w["name"], "Sv %d" % g.weapons.lv[id], w["color"]))
+		parent.add_child(_row(w["icon"], w["name"], "Sv %d" % lvl, w["color"]))
 	for id in g.passives.keys():
 		var p: Dictionary = Upgrades.PASSIVES[id]
 		parent.add_child(_row(p["icon"], p["name"], "Sv %d" % g.passives[id], TEAL))

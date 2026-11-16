@@ -187,6 +187,8 @@ func hurt(dmg: float, from: Vector3) -> void:
 	invuln_t = 0.7
 	hurt_flash = 1.0
 	g.stats_damage_taken += dmg * g.st.armor
+	if g.demo:
+		print("HURT t=%.0f dmg=%.0f hp=%.0f" % [g.t, dmg * g.st.armor, hp])
 	var away := (global_position - from)
 	away.y = 0
 	if away.length() > 0.01:
