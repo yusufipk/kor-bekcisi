@@ -163,7 +163,12 @@ func _update_anim(spd: float, on_floor: bool) -> void:
 		want = "run"
 	if want != cur_anim:
 		cur_anim = want
-		anim.play(anim_names[want], 0.12)
+		anim.play(anim_names[want], 0.1)
+		# Skip the clips' wind-up: jump starts at take-off, slide at the low pose.
+		if want == "jump":
+			anim.seek(0.5, true)
+		elif want == "slide":
+			anim.seek(0.4, true)
 	if want == "run":
 		anim.speed_scale = clampf(spd / 8.5, 0.6, 1.6)
 	else:

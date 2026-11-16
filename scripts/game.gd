@@ -31,7 +31,7 @@ var state := S_TITLE
 var t := 0.0
 var level := 1
 var xp := 0.0
-var xp_next := 6.0
+var xp_next := 4.0
 var pending_levels := 0
 var pending_chest := 0
 var kills := 0
@@ -43,6 +43,7 @@ var enemy_dmg_mult := 1.0
 var won := false
 var demo := false
 var demo_cfg := {}
+var prof := [0, 0, 0, 0, 0, 0]
 
 var world: World
 var player
@@ -59,7 +60,7 @@ var cam_pitch_node: Node3D
 var spring: SpringArm3D
 var cam: Camera3D
 var cam_yaw := 0.0
-var cam_pitch := -0.5
+var cam_pitch := -0.62
 var trauma := 0.0
 var hitstop_t := 0.0
 
@@ -196,35 +197,11 @@ func _setup_player() -> void:
 	player.set_script(preload("res://scripts/player.gd"))
 	player.position = Vector3(0, 0.5, 0)
 	add_child(player)
-	var path := "res://art/models/kahraman.glb"
-	var model: Node3D
-	var anim: AnimationPlayer = null
-	var names := {}
-	if ResourceLoader.exists(path):
-		model = Models.prop(path, 1.75)
-		anim = model.find_child("AnimationPlayer", true, false)
-		if anim:
-			var lib: AnimationLibrary = anim.get_animation_library("")
-			for a in anim.get_animation_list():
-				names["run"] = a
-				var an: Animation = anim.get_animation(a)
-				an.loop_mode = Animation.LOOP_LINEAR
-			for extra in [["idle", "kahraman_bekleme"], ["jump", "kahraman_zipla"], ["slide", "kahraman_kayma"]]:
-				var p2 := "res://art/models/%s.glb" % extra[1]
-				if not ResourceLoader.exists(p2):
-					continue
-				var tmp: Node = load(p2).instantiate()
-				var ap: AnimationPlayer = tmp.find_child("AnimationPlayer", true, false)
-				if ap and ap.get_animation_list().size() > 0:
-					var src: Animation = ap.get_animation(ap.get_animation_list()[0]).duplicate(true)
-					src.loop_mode = Animation.LOOP_LINEAR if extra[0] == "idle" else Animation.LOOP_NONE
-					_strip_root_motion(src)
-					lib.add_animation(extra[0], src)
-					names[extra[0]] = extra[0]
-				tmp.free()
-			for k in names.keys():
-				_strip_root_motion(anim.get_animation(names[k]))
-	else:
+	var hero := Models.hero()
+	var model: Node3D = hero[0]
+	var anim: AnimationPlayer = hero[1]
+	var names: Dictionary = hero[2]
+	if model == null:
 		model = Node3D.new()
 		var body := MeshInstance3D.new()
 		var cap := CapsuleMesh.new()
@@ -246,51 +223,7 @@ func _setup_player() -> void:
 	lamp.shadow_enabled = false
 	player.add_child(lamp)
 	player.set_model(model, anim, names)
-	_fit_skinned(model, 1.75)
-
-## Skinned GLBs carry a 0.01 armature scale that mesh bounds do not see, so
-## measure the rest skeleton in world space and rescale to the wanted height.
-func _fit_skinned(model: Node3D, height: float) -> void:
-	var sk: Skeleton3D = model.find_child("Skeleton3D", true, false)
-	if sk == null or model.get_child_count() == 0:
-		return
-	var inner: Node3D = model.get_child(0)
-	var lo := INF
-	var hi := -INF
-	var xz := Vector2.ZERO
-	for b in sk.get_bone_count():
-		var p: Vector3 = sk.global_transform * sk.get_bone_global_rest(b).origin
-		lo = minf(lo, p.y)
-		hi = maxf(hi, p.y)
-		xz += Vector2(p.x, p.z)
-	var span := hi - lo
-	if span <= 0.0001:
-		return
-	# Bones stop at the head joint; the top of the head sits about 8 % higher.
-	var k := height / (span * 1.08)
-	inner.scale *= k
-	var foot := INF
-	for b in sk.get_bone_count():
-		foot = minf(foot, (sk.global_transform * sk.get_bone_global_rest(b).origin).y)
-	inner.position.y -= foot - model.global_position.y
-
-## Keep the hero in place: clips with hip translation fight the controller.
-func _strip_root_motion(a: Animation) -> void:
-	if a == null:
-		return
-	for i in a.get_track_count():
-		if a.track_get_type(i) != Animation.TYPE_POSITION_3D:
-			continue
-		var path := str(a.track_get_path(i))
-		if not (path.ends_with("Hips") or path.ends_with("hips") or path.ends_with(":Root") or path.contains("Hips")):
-			continue
-		var n := a.track_get_key_count(i)
-		if n == 0:
-			continue
-		var first: Vector3 = a.track_get_key_value(i, 0)
-		for k in n:
-			var v: Vector3 = a.track_get_key_value(i, k)
-			a.track_set_key_value(i, k, Vector3(first.x, v.y, first.z))
+	Models.fit_skinned(model, 1.75)
 
 func _setup_camera() -> void:
 	cam_rig = Node3D.new()
@@ -325,6 +258,7 @@ func _setup_shrines() -> void:
 			mi.position.y = 2.0
 			node.add_child(mi)
 		node.position = p
+		world.apply_fade(node)
 		world.add_child(node)
 		var light := OmniLight3D.new()
 		light.light_color = Color(1.0, 0.75, 0.35)
@@ -419,11 +353,22 @@ func _process(dt: float) -> void:
 	t += dt
 	enemy_dmg_mult = 1.0 + t / 420.0
 	em.hp_mult = 1.0 + t / 110.0 + pow(t / 320.0, 2.0)
+	var t0 := Time.get_ticks_usec()
 	_director(dt)
+	var t1 := Time.get_ticks_usec()
 	em.update(dt, player.global_position, player)
+	var t2 := Time.get_ticks_usec()
 	weapons.update(dt, player)
+	var t3 := Time.get_ticks_usec()
 	pickups.update(dt, player)
+	var t4 := Time.get_ticks_usec()
 	_update_shrines(dt)
+	if demo:
+		prof[0] += t1 - t0; prof[1] += t2 - t1; prof[2] += t3 - t2; prof[3] += t4 - t3
+		prof[5] += 1
+		if prof[5] >= 120:
+			print("PROF us/frame dir=%d em=%d weap=%d pick=%d gems=%d alive=%d fx=%d" % [prof[0] / 120, prof[1] / 120, prof[2] / 120, prof[3] / 120, pickups.g_count, em.alive_count(), fx.s_count])
+			prof = [0, 0, 0, 0, 0, 0]
 	if boss_dead_t >= 0.0:
 		boss_dead_t -= dt
 		if boss_dead_t < 0.0:
@@ -442,6 +387,11 @@ func _update_camera(dt: float) -> void:
 	cam.h_offset = sin(tt * 37.0) * sh * 0.6
 	cam.v_offset = cos(tt * 41.0) * sh * 0.5
 	cam.rotation.z = sin(tt * 29.0) * sh * 0.03
+	var head: Vector3 = player.global_position + Vector3(0, 1.0, 0)
+	if not cam.is_position_behind(head):
+		var vp := get_viewport().get_visible_rect().size
+		RenderingServer.global_shader_parameter_set("player_screen", cam.unproject_position(head) / vp)
+		RenderingServer.global_shader_parameter_set("player_depth", cam.global_position.distance_to(head))
 
 func shake(amount: float) -> void:
 	trauma = minf(1.0, trauma + amount)
@@ -455,7 +405,7 @@ func hitstop(d: float) -> void:
 # ---------------------------------------------------------------- director
 
 func _target_alive() -> float:
-	var pts := [[0.0, 5.0], [45.0, 18.0], [120.0, 45.0], [240.0, 110.0], [360.0, 190.0], [480.0, 280.0], [570.0, 360.0], [600.0, 380.0]]
+	var pts := [[0.0, 8.0], [45.0, 24.0], [120.0, 55.0], [240.0, 110.0], [360.0, 190.0], [480.0, 280.0], [570.0, 360.0], [600.0, 380.0]]
 	for i in pts.size() - 1:
 		if t < pts[i + 1][0]:
 			var k: float = (t - pts[i][0]) / (pts[i + 1][0] - pts[i][0])
@@ -520,6 +470,8 @@ func _director(dt: float) -> void:
 	_event(240.0, "swarm1")
 	_event(420.0, "swarm2")
 	_event(540.0, "swarm3")
+	_event(14.0, "tip_shrine")
+	_event(40.0, "tip_jump")
 	_event(270.0, "music_late")
 	_event(BOSS_TIME - 20.0, "boss_warn")
 	_event(BOSS_TIME, "boss")
@@ -558,6 +510,10 @@ func _event(at: float, id: String) -> void:
 		var base := pp + Vector3(cos(a), 0, sin(a)) * 26.0
 		for i in 30 + int(t / 20.0):
 			em.spawn(1, base + Vector3(randf_range(-5, 5), 0, randf_range(-5, 5)))
+	elif id == "tip_shrine":
+		toast("✦ işaretli fenerin yanında 2 saniye dur: yanınca kalıcı güç verir.", 5.0)
+	elif id == "tip_jump":
+		toast("Sıkıştın mı? Shift ile kay, kayarken hasar almazsın.", 4.5)
 	elif id == "music_late":
 		_play_music("late")
 	elif id == "boss_warn":
@@ -748,10 +704,15 @@ func add_xp(v: float) -> void:
 	while xp >= xp_next:
 		xp -= xp_next
 		level += 1
-		xp_next = 6.0 + (level - 1) * 5.0 + pow(level - 1, 1.35)
+		xp_next = xp_needed(level)
 		pending_levels += 1
 	if pending_levels > 0 and state == S_PLAY:
 		_open_levelup(false)
+
+## Early levels come quickly so the first minute already feels like growth.
+static func xp_needed(lv: int) -> float:
+	var n := float(lv - 1)
+	return 4.0 + n * 3.5 + pow(n, 1.45)
 
 func open_chest(p: Vector3) -> void:
 	chests_opened += 1
@@ -858,8 +819,14 @@ func choose(c: Dictionary) -> void:
 	get_tree().paused = false
 	if not demo:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	# Brief invulnerability so a pick never drops you into a hit.
+	# Brief invulnerability and a soft push so a pick never drops you into a hit.
 	player.invuln_t = maxf(player.invuln_t, 0.6)
+	var pp: Vector3 = player.global_position
+	fx.ring(pp, 6.0, Color(1.0, 0.85, 0.4), 0.4, 0.1, 0.15)
+	for e in em.query(pp, 6.0):
+		var away: Vector3 = e.pos - pp
+		away.y = 0
+		e.vel += away.normalized() * 14.0
 
 func on_slide(p: Vector3, dir: Vector3) -> void:
 	weapons.on_slide(p, dir)

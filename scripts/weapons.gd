@@ -81,8 +81,8 @@ void fragment() {
 	add_child(patch_mm)
 
 func _glow(c: Color, e: float) -> StandardMaterial3D:
+	# Shaded + strong emission so the glow pass blooms it (unshaded caps at 1.0).
 	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.albedo_color = c
 	mat.emission_enabled = true
 	mat.emission = c
@@ -320,8 +320,8 @@ func _update_orbit(dt: float, pp: Vector3, st) -> void:
 	while orbit_nodes.size() < n:
 		var mi := MeshInstance3D.new()
 		var sp := SphereMesh.new()
-		sp.radius = 0.38
-		sp.height = 0.76
+		sp.radius = 0.28
+		sp.height = 0.56
 		sp.radial_segments = 10
 		sp.rings = 5
 		sp.material = _glow(Color(1.0, 0.75, 0.3), 5.0)

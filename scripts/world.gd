@@ -19,7 +19,30 @@ func build() -> void:
 	_props()
 	_far_islands()
 
+var fade_shader: Shader
+
 func _environment() -> void:
+	RenderingServer.global_shader_parameter_add("player_screen", RenderingServer.GLOBAL_VAR_TYPE_VEC2, Vector2(0.5, 0.5))
+	RenderingServer.global_shader_parameter_add("player_depth", RenderingServer.GLOBAL_VAR_TYPE_FLOAT, 12.0)
+	fade_shader = Shader.new()
+	fade_shader.code = """
+shader_type spatial;
+uniform sampler2D tex : source_color, filter_linear_mipmap;
+uniform vec4 tint : source_color = vec4(1.0);
+global uniform vec2 player_screen;
+global uniform float player_depth;
+void fragment() {
+	ALBEDO = texture(tex, UV).rgb * tint.rgb;
+	ROUGHNESS = 0.9;
+	// Dither out props that stand between the camera and the hero.
+	float depth = -VERTEX.z;
+	vec2 d = (SCREEN_UV - player_screen) * vec2(VIEWPORT_SIZE.x / VIEWPORT_SIZE.y, 1.0);
+	float r = length(d);
+	float fade = (1.0 - smoothstep(0.12, 0.3, r)) * step(depth, player_depth - 1.5);
+	float n = fract(52.9829189 * fract(dot(FRAGCOORD.xy, vec2(0.06711056, 0.00583715))));
+	if (fade * 0.85 > n) discard;
+}
+"""
 	var we := WorldEnvironment.new()
 	env = Environment.new()
 	var sky := Sky.new()
@@ -229,6 +252,8 @@ func _props() -> void:
 		var t := Models.prop(M + "agac.glb", h)
 		if t == null:
 			t = _placeholder_tree(h)
+		else:
+			apply_fade(t)
 		t.rotation.y = rng.randf() * TAU
 		_add_obstacle(t, p, 0.7, 3.0)
 	for i in 26:
@@ -237,8 +262,24 @@ func _props() -> void:
 		var k := Models.prop(M + "kaya.glb", h)
 		if k == null:
 			k = _placeholder_rock(h)
+		else:
+			apply_fade(k)
 		k.rotation.y = rng.randf() * TAU
 		_add_obstacle(k, p, h * 0.75, h)
+
+## Swap imported materials for the occlusion-fade shader, keeping the texture.
+func apply_fade(n: Node) -> void:
+	if n is MeshInstance3D:
+		var mi: MeshInstance3D = n
+		for si in mi.mesh.get_surface_count():
+			var src = mi.get_active_material(si)
+			var sm := ShaderMaterial.new()
+			sm.shader = fade_shader
+			if src is BaseMaterial3D and src.albedo_texture:
+				sm.set_shader_parameter("tex", src.albedo_texture)
+			mi.set_surface_override_material(si, sm)
+	for c in n.get_children():
+		apply_fade(c)
 
 func _far_islands() -> void:
 	var mat := StandardMaterial3D.new()
