@@ -1,0 +1,16 @@
+; Engine configuration file.
+
+config_version=5
+
+[application]
+
+config/name="Opus Oyunu"
+config/features=PackedStringArray("4.7", "Forward Plus")
+
+[autoload]
+
+BeckettRuntime="*res://addons/beckett/runtime/beckett_autoload.gd"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/beckett/plugin.cfg")
