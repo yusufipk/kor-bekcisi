@@ -456,7 +456,7 @@ func update(dt: float, player_pos: Vector3, player: Node) -> void:
 		if dist < r + 0.45 and py < e.jump_safe:
 			# The biter bounces off, so one body cannot pin the hero against a wall.
 			if player.hurt(e.dmg * e.dmg_mult * g.enemy_dmg_mult, e.pos) and e.type != BOSS:
-				e.vel -= Vector3(dx, 0, dz) * (7.0 if e.elite else 11.0)
+				e.vel -= Vector3(dx, 0, dz) * (8.0 if e.elite else 14.0)
 		# Recycle stragglers far behind so pressure stays on the player.
 		if dist > 46.0 and e.type != BOSS:
 			var ang := randf() * TAU

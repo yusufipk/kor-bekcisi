@@ -791,6 +791,13 @@ func show_levelup(choices: Array, chest: bool) -> void:
 		lvl_cards.add_child(_card(choices[i], i))
 	lvl_layer.modulate.a = 0.0
 	create_tween().tween_property(lvl_layer, "modulate:a", 1.0, 0.12)
+	# Demo only: one frame of the card screen from level `card_shot` on.
+	if g.demo and g.demo_cfg.has("card_shot") and g.level >= int(g.demo_cfg["card_shot"]) and not g.events_done.has("card_shot"):
+		g.events_done["card_shot"] = true
+		get_tree().create_timer(0.5, true, false, true).timeout.connect(func():
+			var dir := str(g.demo_cfg.get("shot_dir", "user://shots"))
+			get_viewport().get_texture().get_image().save_jpg(dir + "/kart.jpg", 0.85)
+			print("SHOT card"))
 
 func _card(c: Dictionary, i: int) -> Button:
 	var id: String = c["id"]

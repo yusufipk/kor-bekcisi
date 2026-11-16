@@ -7,6 +7,7 @@ static var inst: Game
 
 enum { S_TITLE, S_PLAY, S_LEVELUP, S_PAUSE, S_END }
 const BOSS_TIME := 600.0
+const EVO_FROM := 240.0
 const RECORD_PATH := "user://rekor.cfg"
 const DEMO_PATH := "user://demo.cfg"
 
@@ -445,6 +446,7 @@ func start_run() -> void:
 	if demo and demo_cfg.get("screen", "") == "evo":
 		weapons.lv["bolt"] = Upgrades.WEAPON_MAX
 		passives["crit"] = 1
+		t = maxf(t, EVO_FROM)
 		get_tree().create_timer(1.0).timeout.connect(open_chest.bind(player.global_position))
 
 ## Permanent altar upgrades. Demo runs have no ranks, so tests stay comparable.
@@ -550,12 +552,13 @@ func _process(dt: float) -> void:
 		ui.hide_pause()  # demo freeze is for screenshots: keep the frame clean
 		return
 	# Contact damage starts at 75 % and reaches full strength at 3:00.
-	enemy_dmg_mult = (0.75 + 0.25 * minf(1.0, t / 180.0)) * (1.0 + t / 450.0)
+	# From 5:30 it climbs faster again, so a strong build still gets hit late.
+	enemy_dmg_mult = (0.75 + 0.25 * minf(1.0, t / 180.0)) * (1.0 + t / 600.0 + maxf(0.0, t - 330.0) / 500.0)
 	# The late term answers evolutions: from about 5:30 the night horde hardens.
 	# Before 4:00 the linear term grows as a curve, so the starting bolt still
 	# kills a crawler in one shot for the first two minutes.
 	var lin := t / 220.0 if t >= 240.0 else pow(t / 240.0, 2.0) * 240.0 / 220.0
-	em.hp_mult = 1.0 + lin + pow(t / 400.0, 2.0) + pow(maxf(0.0, t - 330.0) / 160.0, 2.2)
+	em.hp_mult = 1.0 + lin + pow(t / 400.0, 2.0) + pow(maxf(0.0, t - 330.0) / 148.0, 2.2)
 	var t0 := Time.get_ticks_usec()
 	_director(dt)
 	var t1 := Time.get_ticks_usec()
@@ -749,7 +752,7 @@ func _director(dt: float) -> void:
 			pickups.spawn_chest(p, Models.prop(chest_model_path, 1.1))
 			toast("Adada bir sandık belirdi. Işık sütununu takip et!")
 	_event(150.0, "ring1")
-	_event(300.0, "ring2")
+	_event(345.0, "ring2")  # not on top of the serpent's arrival
 	_event(450.0, "ring3")
 	_event(240.0, "swarm1")
 	_event(420.0, "swarm2")
@@ -1358,8 +1361,9 @@ func roll_choices(chest := false) -> Array:
 			w *= 1.8
 		pool.append([id, "p", w])
 	var out: Array = []
-	# A chest always offers a ready evolution first.
-	if chest:
+	# A chest always offers a ready evolution first, from 4:00 on, so the big
+	# moment lands mid-run even when the gentler opening speeds up levelling.
+	if chest and t >= EVO_FROM:
 		for id in evo_ready():
 			if out.size() < 3:
 				out.append({"id": id, "kind": "e"})

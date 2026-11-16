@@ -18,7 +18,7 @@ Projeyi Godot 4.7 ile aç ve F5'e bas.
 | R | seviye ekranında kartları yeniden çek |
 | Esc | duraklat ve ayarlar (fare hassasiyeti, müzik, efekt, parlaklık) |
 
-Ölen düşmanın bıraktığı kristaller tecrübe verir. Seviye atlayınca oyun durur, üç karttan biri seçilir: yeni silah, silah geliştirme ya da kalıcı özellik. Dört silah ve dört özellik yuvan var, o yüzden her tur başka bir build'le biter. En üst seviyeye çıkan silah eşi olan özellikle birleşince sandıkta yeni bir silaha dönüşür; tarifleri kartlarda ve Kor Sunağı'nda yazar. Beş feneri yak (✦ işaretli birinin yanında iki saniye dur): her biri kalıcı bir güç verir, ışığında canın dolar. Kehribar kristalleri kırınca tecrübe, can ya da sandık çıkar. 5. dakikada Kor Yılanı gelir, 10. dakikada Kül Devi. Tur sonunda kazandığın korla başlık ekranındaki Kor Sunağı'ndan kalıcı yükseltmeler alırsın.
+Ölen düşmanın bıraktığı kristaller tecrübe verir. Seviye atlayınca oyun durur, üç karttan biri seçilir: yeni silah, silah geliştirme ya da kalıcı özellik. Dört silah ve dört özellik yuvan var, o yüzden her tur başka bir build'le biter. En üst seviyeye çıkan silah eşi olan özellikle birleşince sandıkta yeni bir silaha dönüşür; tarifleri kartlarda ve Kor Sunağı'nda yazar. Beş feneri yak (✦ işaretli birinin yanında iki saniye dur; ilki başladığın yerin hemen önünde): her biri kalıcı bir güç verir, ışığında canın dolar. Kehribar kristalleri kırınca tecrübe, can ya da sandık çıkar. 5. dakikada Kor Yılanı gelir, 10. dakikada Kül Devi. Tur sonunda kazandığın korla başlık ekranındaki Kor Sunağı'ndan kalıcı yükseltmeler alırsın.
 
 ## Bu aşamada eklenenler
 
@@ -31,6 +31,18 @@ Projeyi Godot 4.7 ile aç ve F5'e bas.
 - **Boss'a sahne.** Yerden yükselen ağır çekim giriş, dövüş boyunca geri çekilen kamera, üç evre (kül yağmuru, yer yarıkları, öfke) ve kalabalığın ışığa dönüştüğü bir ölüm.
 - **Bir tur daha.** Kor Sunağı'nda sekiz kalıcı yükseltme, başlangıç silahı seçimi ve dönüşüm koleksiyonu. Bitiş ekranında silah başına hasar ve kazanılan kor.
 - **Okunurluk.** Aynı düşmana vuran hasar sayıları tek sayıda toplanıyor, kameranın dibindeki ağaçlar seyreliyor, can toplamak ekranın ortasına yazı basmıyor.
+
+## Revizyon: ilk kez oynayan birinin raporu
+
+Bağımsız bir inceleme ajanı oyunu ilk kez oynayan biri gibi oynadı. Üç turu 1:11 ile 2:44 arasında bitti, yılanı da boss'u da görmedi. Raporu sayıyla doğrulamak için gösteri moduna yeni oyuncuyu taklit eden üç bot ekledim. Biri körlemesine daire çiziyor, biri gördüğü kalabalıktan kaçıyor, biri ilk ipucuna uyup fenerin ışığında dolaşıyor. Eski sürümde ilk ikisi 1:44 ile 3:42 arasında öldü. Yenisinde dokuz turun yedisi yılanı (5:00) görüyor, ipucuna uyan bot üç turda da 7:00'ı geçiyor. Akıllı bot hâlâ 11. dakikada kazanıyor.
+
+- **İlk üç dakika.** İlk fener başlangıçta kameranın önünde, ipucu ilk saniyede. Kalabalık ilk iki dakikada %40 az, düşman canı ve temas hasarı ilk dakikalarda yavaş artıyor. Güveler 1:15'ten, hantallar 2:50'den, seçkin hantallar ve boynuzlar yılandan sonra geliyor. Meyve ilk üç dakikada üç kat sık düşüyor ve oyuncuya çekiliyor. Isıran düşman geri sekiyor. Başlangıç canı 140, darbe sonrası dokunulmazlık 1 saniye. İkinci kapanan halka yılanla aynı ana denk gelmesin diye 5:45'e kaydı.
+- **Renkle ayrım.** Kahramanda her ışıkta seçilen turkuaz bir dış çizgi ve ayak halkası var. Kalabalık soğuk mor, düşman mermileri kızıl-turuncu, yılan kor turuncusu, boss'ta lav çatlakları var. Boss savaşında kamera geri çekilmek yerine kahramanla boss'u birlikte çerçeveliyor ve fare dururken boss'a dönüyor. Boss ya da yılan ekran dışındaysa kenarda büyük bir ok çıkıyor, sandık sütunları sönüyor.
+- **Kartlar ve ritim.** Kartlar ne değiştiğini sayıyla yazıyor ("Ok 1 → 2 · Hasar 11 → 14", "Hasar %115 → %132"). Silahlar aynı tablodan ateşlediği için kartta yazan sayı oyundakiyle aynı. Kart ekranı kapandıktan sonraki 6 saniyede gelen seviyeler bekleyip tek ekranda sırayla açılıyor.
+- **Hatalar.** Boşluk artık menü düğmesine basmıyor, bitiş ekranı ilk 1,2 saniye tuş kabul etmiyor. Kenar işaretleri en yakın feneri ve en yakın iki sandığı gösteriyor, HUD'a girmeyen bir şeritte duruyor ve üst üste binmiyor. Kamera kolu engele çarpıp yere inmiyor; kamerayla kahraman arasına giren her şey zaten saydamlaşıyor.
+- **Ses ve performans.** Tecrübe sesi 9,5 dB yükseldi (müziğin yaklaşık 8 dB altında) ve art arda toplandıkça pentatonik bir dizide tırmanıyor. Boss kükremesi müziğin yaklaşık 3 dB üstünde. Yerdeki kristallerin süzülmesi shader'da yapılıyor ve üst sınır 400, fazlası mevcut kristale ekleniyor. Toplama maliyeti aynı kalabalıkta 3-4 kat düştü.
+
+Müziğin dinamik aralığının 3 LU olmasına katılmıyorum ve değiştirmedim. Sürekli efekt altında çalan oyun müziğinin düz olması bilinçli; sessiz pasajlar savaşta kaybolurdu ve bu oyunda müzik hiçbir an bastırılmamalı. Yoğunluk parça değişimiyle geliyor (erken tur, geç tur, boss) ve oyuncular artık geç tura ulaştığı için o parçaları duyuyor.
 
 ## Kredi dökümü
 
@@ -51,7 +63,7 @@ Higgsfield'da iki aşamada harcanan toplam: **403,79 kredi** (iki aşamanın tav
 
 ## Bilinen zayıf noktalar
 
-- Denge yalnızca otomatik pilotla ayarlandı, insanla test edilmedi. Bot 4+4 yuvayla 10. dakikaya ulaşıyor ama kart şansı turdan tura çok fark yaratıyor; dönüşüm erken gelen turlar 7. dakikadan sonra yine kolaylaşabiliyor. Kor Sunağı fiyatları hiç oynanarak denenmedi.
+- Denge botlarla ayarlandı, insanla test edilmedi. Yeni oyuncu botları gerçek bir insanın yaptığı hataların yalnızca bir kısmını taklit ediyor; kaçan bot hâlâ bazen 5:00'tan önce ölüyor. Kart şansı turdan tura çok fark yaratıyor; dönüşüm erken gelen turlar geç oyunda kolaylaşabiliyor. Kor Sunağı fiyatları hiç oynanarak denenmedi.
 - Performans ağır yüklü bir makinede ölçüldü, FPS sayıları güvenilir değil. Düşman mantığı düşman başına yaklaşık 12 µs tutuyor; 300'ü aşan kalabalıkta zayıf bir makinede kare düşebilir.
 - Kor Yılanı ile Kül Devi'nin canı ilk saniyelerde vurulan hasara göre ayarlanıyor; dövüş süresi yapıya göre oynuyor (bot turlarında boss 50 ile 70 saniye sürdü).
 - Kül gecesi bütün sahneyi kırmızıya boyuyor; düşmanlar kenar ışığıyla seçiliyor ama renk körlüğü olan biri için zorlaşabilir.
