@@ -199,6 +199,8 @@ func hurt(dmg: float, from: Vector3) -> void:
 	if g.demo and g.demo_cfg.get("god", false):
 		hp = maxf(hp, 1.0)
 	if hp <= 0.0:
+		if g.try_revive():
+			return
 		hp = 0.0
 		dead = true
 		g.on_player_died()

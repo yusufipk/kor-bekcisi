@@ -385,6 +385,32 @@ func show_title(rec: Dictionary) -> void:
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	title_layer.add_child(bg)
+	# Slow push-in on the key art and embers drifting up keep the menu alive.
+	bg.resized.connect(func(): bg.pivot_offset = bg.size * 0.5)
+	var kb := bg.create_tween().set_loops()
+	kb.tween_property(bg, "scale", Vector2(1.07, 1.07), 18.0).set_trans(Tween.TRANS_SINE)
+	kb.tween_property(bg, "scale", Vector2(1.0, 1.0), 18.0).set_trans(Tween.TRANS_SINE)
+	var embers := CPUParticles2D.new()
+	embers.amount = 70
+	embers.lifetime = 7.0
+	embers.preprocess = 7.0
+	embers.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	embers.emission_rect_extents = Vector2(1100, 10)
+	embers.direction = Vector2(0, -1)
+	embers.spread = 25.0
+	embers.gravity = Vector2(0, -12)
+	embers.initial_velocity_min = 30.0
+	embers.initial_velocity_max = 80.0
+	embers.scale_amount_min = 2.0
+	embers.scale_amount_max = 5.0
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(1.0, 0.75, 0.35, 0.0))
+	ramp.add_point(0.15, Color(1.0, 0.6, 0.25, 0.9))
+	ramp.set_color(ramp.get_point_count() - 1, Color(1.0, 0.35, 0.2, 0.0))
+	embers.color_ramp = ramp
+	title_layer.add_child(embers)
+	title_layer.resized.connect(func(): embers.position = Vector2(title_layer.size.x * 0.5, title_layer.size.y + 20))
+	embers.position = Vector2(800, 920)
 	var shade := ColorRect.new()
 	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	var gs := Shader.new()
@@ -418,15 +444,188 @@ void fragment() { COLOR = vec4(0.08, 0.04, 0.12, mix(0.88, 0.05, smoothstep(0.25
 	start.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	start.pressed.connect(func(): g.start_run())
 	col.add_child(start)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	col.add_child(row)
+	var altar := Button.new()
+	altar.text = "Kor Sunağı  ·  %d kor" % g.meta.kor
+	altar.custom_minimum_size = Vector2(300, 50)
+	altar.pressed.connect(func(): _altar())
+	row.add_child(altar)
 	var set_btn := Button.new()
 	set_btn.text = "Ayarlar"
-	set_btn.custom_minimum_size = Vector2(260, 50)
-	set_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	set_btn.custom_minimum_size = Vector2(160, 50)
 	set_btn.pressed.connect(func(): _settings_popup())
-	col.add_child(set_btn)
+	row.add_child(set_btn)
+	if g.meta.rank("start") > 0:
+		col.add_child(_start_picker())
+	col.add_child(_evo_strip())
 	if rec["runs"] > 0:
 		col.add_child(_label("En uzun tur %s  ·  En çok %d düşman  ·  %d zafer" % [Game.fmt_time(rec["best_time"]), rec["best_kills"], rec["wins"]], 20, Color(1, 0.85, 0.5)))
 	start.grab_focus()
+
+## Row of starting weapons (unlocked at the altar).
+func _start_picker() -> Control:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	var name_l := _label("Başlangıç: " + Upgrades.WEAPONS[g.meta.start_weapon]["name"], 20, TEAL)
+	name_l.custom_minimum_size.x = 250
+	h.add_child(name_l)
+	for id in Upgrades.WEAPONS.keys():
+		var w: Dictionary = Upgrades.WEAPONS[id]
+		var b := Button.new()
+		b.text = w["icon"]
+		b.tooltip_text = w["name"]
+		b.custom_minimum_size = Vector2(44, 40)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(w["color"], 0.55 if id == g.meta.start_weapon else 0.15)
+		sb.set_corner_radius_all(8)
+		sb.border_color = Color(1.0, 0.85, 0.3)
+		sb.set_border_width_all(2 if id == g.meta.start_weapon else 0)
+		b.add_theme_stylebox_override("normal", sb)
+		b.add_theme_font_size_override("font_size", 20)
+		b.pressed.connect(func():
+			g.meta.start_weapon = id
+			g.meta.save_cfg()
+			var par := h.get_parent()
+			var idx := h.get_index()
+			h.queue_free()
+			var nh := _start_picker()
+			par.add_child(nh)
+			par.move_child(nh, idx))
+		h.add_child(b)
+	return h
+
+## The seven evolutions as a collection: lit when discovered.
+func _evo_strip() -> Control:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	var n: int = g.meta.discovered.size()
+	var l := _label("Dönüşümler %d / %d" % [n, Upgrades.EVOS.size()], 20, Color(1.0, 0.9, 0.55))
+	l.custom_minimum_size.x = 250
+	h.add_child(l)
+	for id in Upgrades.EVOS.keys():
+		var e: Dictionary = Upgrades.EVOS[id]
+		var known: bool = g.meta.discovered.has(id)
+		var b := _badge(e["icon"] if known else "?", e["color"] if known else Color(0.5, 0.5, 0.6), 44)
+		b.tooltip_text = e["name"] if known else "%s + %s" % [Upgrades.WEAPONS[id]["name"], Upgrades.PASSIVES[e["partner"]]["name"]]
+		if not known:
+			(b.get_child(0) as Label).add_theme_color_override("font_color", Color(1, 1, 1, 0.4))
+		h.add_child(b)
+	return h
+
+## Kor Sunağı: permanent upgrades on the left, the evolution book on the right.
+func _altar() -> void:
+	var dim := ColorRect.new()
+	dim.color = Color(0.04, 0.02, 0.07, 0.86)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(dim)
+	var cc := CenterContainer.new()
+	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.add_child(cc)
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 18)
+	cc.add_child(outer)
+	var head := HBoxContainer.new()
+	outer.add_child(head)
+	head.add_child(_label("Kor Sunağı", 48, ACCENT))
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(gap)
+	var bal := _label("%d kor" % g.meta.kor, 34, Color(1.0, 0.8, 0.4))
+	head.add_child(bal)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 24)
+	outer.add_child(h)
+	var left := _panel()
+	left.custom_minimum_size = Vector2(720, 520)
+	h.add_child(left)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 14)
+	left.add_child(grid)
+	var right := _panel()
+	right.custom_minimum_size = Vector2(440, 520)
+	h.add_child(right)
+	var book := VBoxContainer.new()
+	book.add_theme_constant_override("separation", 10)
+	right.add_child(book)
+	var rebuild: Callable
+	rebuild = func():
+		for c in grid.get_children():
+			c.queue_free()
+		bal.text = "%d kor" % g.meta.kor
+		for u in g.meta.UPGRADES:
+			grid.add_child(_altar_tile(u, rebuild))
+	rebuild.call()
+	book.add_child(_label("Dönüşümler", 28, Color(1.0, 0.9, 0.55)))
+	for id in Upgrades.EVOS.keys():
+		var e: Dictionary = Upgrades.EVOS[id]
+		var known: bool = g.meta.discovered.has(id)
+		var recipe := "%s %s  +  %s %s" % [Upgrades.WEAPONS[id]["icon"], Upgrades.WEAPONS[id]["name"], Upgrades.PASSIVES[e["partner"]]["icon"], Upgrades.PASSIVES[e["partner"]]["name"]]
+		book.add_child(_row(e["icon"] if known else "?", e["name"] if known else "???", "", e["color"] if known else Color(0.5, 0.5, 0.6)))
+		var rl := _label(recipe, 17, Color(0.8, 0.78, 0.9))
+		rl.custom_minimum_size.x = 380
+		book.add_child(rl)
+	var close := Button.new()
+	close.text = "Kapat"
+	close.custom_minimum_size = Vector2(240, 52)
+	close.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	close.pressed.connect(func():
+		dim.queue_free()
+		# Refresh the title so the kor count and pickers are current.
+		if title_layer:
+			title_layer.queue_free()
+			title_layer = null
+			show_title(g._load_record()))
+	outer.add_child(close)
+	close.grab_focus()
+
+func _altar_tile(u: Dictionary, rebuild: Callable) -> Control:
+	var id: String = u["id"]
+	var r: int = g.meta.rank(id)
+	var mx: int = (u["cost"] as Array).size()
+	var cost: int = g.meta.next_cost(id)
+	var p := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.2, 0.14, 0.26, 0.95)
+	sb.set_corner_radius_all(12)
+	sb.content_margin_left = 14; sb.content_margin_right = 14
+	sb.content_margin_top = 10; sb.content_margin_bottom = 10
+	p.add_theme_stylebox_override("panel", sb)
+	p.custom_minimum_size = Vector2(330, 128)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 12)
+	p.add_child(h)
+	var badge := _badge(u["icon"], ACCENT, 54)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(badge)
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	h.add_child(v)
+	v.add_child(_label(u["name"], 21, Color(1, 0.92, 0.8)))
+	v.add_child(_label(u["desc"], 17, Color(0.82, 0.8, 0.92)))
+	var pips := ""
+	for i in mx:
+		pips += "●" if i < r else "○"
+	v.add_child(_label(pips, 16, ACCENT))
+	var b := Button.new()
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.custom_minimum_size = Vector2(92, 46)
+	if cost < 0:
+		b.text = "Tamam"
+		b.disabled = true
+	else:
+		b.text = "%d" % cost
+		b.disabled = g.meta.kor < cost
+		b.pressed.connect(func():
+			if g.meta.buy(id):
+				Sfx.play("select", Vector3.INF, 1.0, 0.0)
+				rebuild.call())
+	h.add_child(b)
+	return p
 
 func _settings_popup() -> void:
 	var dim := ColorRect.new()
@@ -581,7 +780,7 @@ func _card(c: Dictionary, i: int) -> Button:
 		sb.border_color = Color(1.0, 0.85, 0.3)
 		sbh.border_color = Color(1.0, 0.85, 0.3)
 	if kind == "e":
-		tag_txt = "  Dönüşüm"
+		tag_txt = ""
 		sb.bg_color = Color(0.32, 0.22, 0.1, 0.98)
 		sbh.bg_color = Color(0.45, 0.3, 0.12, 1.0)
 		sb.border_color = Color(1.0, 0.9, 0.45)
@@ -719,14 +918,14 @@ func show_end(s: Dictionary) -> void:
 	lvl_layer.visible = false
 	hide_pause()
 	end_layer = ColorRect.new()
-	(end_layer as ColorRect).color = Color(0.05, 0.02, 0.08, 0.8)
+	(end_layer as ColorRect).color = Color(0.05, 0.02, 0.08, 0.72)
 	end_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_child(end_layer)
 	var cc := CenterContainer.new()
 	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
 	end_layer.add_child(cc)
 	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 22)
+	outer.add_theme_constant_override("separation", 20)
 	cc.add_child(outer)
 	var title := _label("Kül Devi yenildi!" if s["victory"] else "Fenerin söndü", 64, ACCENT if s["victory"] else Color(1.0, 0.5, 0.55))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -735,46 +934,86 @@ func show_end(s: Dictionary) -> void:
 	h.add_theme_constant_override("separation", 24)
 	outer.add_child(h)
 	var left := _panel()
-	left.custom_minimum_size = Vector2(460, 380)
+	left.custom_minimum_size = Vector2(520, 0)
 	h.add_child(left)
+	var lv := VBoxContainer.new()
+	lv.add_theme_constant_override("separation", 14)
+	left.add_child(lv)
 	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 40)
-	grid.add_theme_constant_override("v_separation", 10)
-	left.add_child(grid)
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 22)
+	grid.add_theme_constant_override("v_separation", 8)
+	lv.add_child(grid)
 	var rows := [
 		["Süre", Game.fmt_time(s["time"])],
-		["Yenilen düşman", str(s["kills"])],
 		["Seviye", str(s["level"])],
-		["Verilen hasar", _big(s["damage"])],
+		["Düşman", _big(float(s["kills"]))],
 		["Alınan hasar", str(int(s["taken"]))],
-		["Açılan sandık", str(s["chests"])],
-		["Yakılan fener", "%d / 5" % s["shrines"]],
+		["Fener", "%d / 5" % s["shrines"]],
+		["Kristal", str(s["crystals"])],
 	]
 	for r in rows:
-		grid.add_child(_label(r[0], 24, Color(0.85, 0.8, 0.95)))
-		var vl := _label(r[1], 26, Color.WHITE)
+		grid.add_child(_label(r[0], 21, Color(0.85, 0.8, 0.95)))
+		var vl := _label(r[1], 23, Color.WHITE)
 		vl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		vl.custom_minimum_size.x = 70
 		grid.add_child(vl)
+	# Damage by weapon: which part of the build carried the run.
+	var wd: Dictionary = s["weapon_damage"]
+	var ids: Array = []
+	for id in wd.keys():
+		if Upgrades.WEAPONS.has(id):
+			ids.append(id)
+	ids.sort_custom(func(x, y): return wd[x] > wd[y])
+	var top := 1.0
+	for id in ids:
+		top = maxf(top, wd[id])
+	lv.add_child(_label("Silah hasarı", 24, ACCENT))
+	for id in ids:
+		var evo: bool = s["weapons"].get(id, 0) >= Upgrades.EVO_LEVEL
+		var d: Dictionary = Upgrades.EVOS[id] if evo else Upgrades.WEAPONS[id]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		row.add_child(_badge(d["icon"], d["color"], 34))
+		var nm := _label(d["name"], 19)
+		nm.custom_minimum_size.x = 160
+		row.add_child(nm)
+		var bar := _bar(d["color"], Color(0, 0, 0, 0.35), 14)
+		bar.max_value = top
+		bar.value = wd[id]
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(bar)
+		var nl := _label(_big(wd[id]), 19, Color(0.9, 0.88, 0.95))
+		nl.custom_minimum_size.x = 92
+		nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(nl)
+		lv.add_child(row)
 	var right := _panel()
-	right.custom_minimum_size = Vector2(380, 380)
+	right.custom_minimum_size = Vector2(400, 0)
 	h.add_child(right)
 	var bl := VBoxContainer.new()
 	bl.add_theme_constant_override("separation", 8)
 	right.add_child(bl)
 	_build_list(bl)
-	var best: Dictionary = s["best"]
-	var line := ""
+	# Reward and discoveries, then the record.
+	var line := "+%d kor  ·  sunakta %d kor" % [s["kor"], s["kor_total"]]
 	if s["demo"]:
-		line = "Demo turu, rekora yazılmadı"
-	elif s["new_best"]:
-		line = "Yeni rekor!"
-	elif best["runs"] > 0:
-		line = "Rekor %s  ·  %d düşman" % [Game.fmt_time(best["best_time"]), best["best_kills"]]
-	if line != "":
-		var rl := _label(line, 26, Color(1.0, 0.85, 0.4))
-		rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		outer.add_child(rl)
+		line = "Demo turu, rekora ve sunağa yazılmadı"
+	var rl := _label(line, 28, Color(1.0, 0.8, 0.4))
+	rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	outer.add_child(rl)
+	for id in s["new_discoveries"]:
+		var e: Dictionary = Upgrades.EVOS[id]
+		var dl := _label("Yeni dönüşüm keşfedildi: %s %s" % [e["icon"], e["name"]], 22, e["color"])
+		dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		outer.add_child(dl)
+	var best: Dictionary = s["best"]
+	if not s["demo"] and (s["new_best"] or best["runs"] > 0):
+		var rec_txt := "Yeni rekor!" if s["new_best"] else "Rekor %s  ·  %d düşman" % [Game.fmt_time(best["best_time"]), best["best_kills"]]
+		var rb := _label(rec_txt, 22, Color(0.95, 0.9, 1.0))
+		rb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		outer.add_child(rb)
 	var again := Button.new()
 	again.text = "Bir tur daha  [R]"
 	again.custom_minimum_size = Vector2(320, 64)
@@ -783,9 +1022,12 @@ func show_end(s: Dictionary) -> void:
 	outer.add_child(again)
 	again.grab_focus()
 
+## Turkish style short numbers: 4,5 mn, 154 bin.
 func _big(v: float) -> String:
 	if v >= 1000000.0:
-		return "%.1fM" % (v / 1000000.0)
+		return ("%.1f mn" % (v / 1000000.0)).replace(".", ",")
+	if v >= 10000.0:
+		return "%d bin" % int(v / 1000.0)
 	if v >= 1000.0:
-		return "%.1fB" % (v / 1000.0)
+		return ("%.1f bin" % (v / 1000.0)).replace(".", ",")
 	return str(int(v))

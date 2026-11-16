@@ -194,7 +194,7 @@ func update(dt: float, player) -> void:
 			if it["kind"] == "heal":
 				player.heal(35.0)
 				g.fx.burst(pp + Vector3(0, 1, 0), Color(1.0, 0.4, 0.4), 12, 1.0)
-				g.toast("+35 can")
+				g.fx.float_text(g.player.global_position + Vector3(0, 2.4, 0), "+35", Color(0.5, 1.0, 0.55))
 			else:
 				magnet_all()
 				g.toast("Bütün kristaller sana geliyor!")

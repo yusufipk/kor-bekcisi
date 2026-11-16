@@ -380,3 +380,16 @@ func _update_lanes(dt: float) -> void:
 			mi.visible = false
 			continue
 		(mi.material_override as ShaderMaterial).set_shader_parameter("k", 1.0 - life / float(mi.get_meta("dur")))
+
+## A short coloured label that floats up (heals and similar personal feedback).
+func float_text(p: Vector3, txt: String, col: Color) -> void:
+	var l: Label3D = nums[num_i]
+	num_i = (num_i + 1) % NUM_POOL
+	l.set_meta("key", 0)
+	l.text = txt
+	l.position = p
+	l.modulate = col
+	l.font_size = 40
+	l.visible = true
+	l.set_meta("life", 0.9)
+	l.set_meta("vy", 1.6)

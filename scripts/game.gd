@@ -44,6 +44,9 @@ var serpent_killed := false
 var enemy_dmg_mult := 1.0
 var won := false
 var rerolls := 1
+var revives := 0
+var meta = preload("res://scripts/meta.gd").new()
+var new_discoveries: Array = []
 var evolved: Array = []          # weapon ids evolved this run, in order
 var weapon_damage := {}          # weapon id -> damage dealt this run
 var cur_chest := false           # the open card set came from a chest
@@ -114,6 +117,8 @@ func _enter_tree() -> void:
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_load_demo_cfg()
+	if not demo:
+		meta.load_cfg()
 	world = World.new()
 	add_child(world)
 	world.build()
@@ -150,6 +155,10 @@ func _ready() -> void:
 		get_tree().paused = true
 		ui.show_title(_load_record())
 		_play_music("early")
+		# Debug builds only: open a menu screen directly for screenshots.
+		var c := ConfigFile.new()
+		if OS.is_debug_build() and c.load(DEMO_PATH) == OK and c.get_value("demo", "screen", "") == "altar":
+			ui._altar()
 
 func _on_settings_changed() -> void:
 	world.apply_brightness(Settings.brightness)
@@ -329,7 +338,8 @@ func _play_music(id: String) -> void:
 func start_run() -> void:
 	state = S_PLAY
 	get_tree().paused = false
-	weapons.add_weapon("bolt")
+	_apply_meta()
+	weapons.add_weapon(meta.start_weapon if meta.rank("start") > 0 else "bolt")
 	if not demo:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	ui.show_hud()
@@ -352,6 +362,44 @@ func start_run() -> void:
 			_play_music("late")
 	if demo and demo_cfg.has("time_scale"):
 		Engine.time_scale = float(demo_cfg["time_scale"])
+	# Debug: a ready evolution, to look at the golden card.
+	if demo and demo_cfg.get("screen", "") == "evo":
+		weapons.lv["bolt"] = Upgrades.WEAPON_MAX
+		passives["crit"] = 1
+		get_tree().create_timer(1.0).timeout.connect(open_chest.bind(player.global_position))
+
+## Permanent altar upgrades. Demo runs have no ranks, so tests stay comparable.
+func _apply_meta() -> void:
+	if demo:
+		return
+	player.max_hp += 10.0 * meta.rank("hp")
+	player.hp = player.max_hp
+	st.dmg *= 1.0 + 0.04 * meta.rank("dmg")
+	st.speed *= 1.0 + 0.03 * meta.rank("speed")
+	st.magnet *= 1.0 + 0.15 * meta.rank("magnet")
+	st.xp *= 1.0 + 0.05 * meta.rank("xp")
+	rerolls += meta.rank("reroll")
+	revives = meta.rank("revive")
+
+## Called by the player at zero health. Returns true if a revive was spent.
+func try_revive() -> bool:
+	if revives <= 0:
+		return false
+	revives -= 1
+	player.hp = player.max_hp * 0.5
+	player.invuln_t = 2.5
+	var pp: Vector3 = player.global_position
+	fx.ring(pp, 12.0, Color(0.5, 1.0, 0.7), 0.6, 0.25, 0.25)
+	fx.pillar(pp, Color(0.6, 1.0, 0.75))
+	for e in em.query(pp, 12.0):
+		if e.type == EnemyManager.BOSS or e.type == EnemyManager.CRYSTAL:
+			continue
+		e.vel += (e.pos - pp).normalized() * 26.0
+		em.damage(e, 300.0, Vector3.ZERO)
+	slowmo(1.0, 0.3)
+	Sfx.play("evolve", Vector3.INF, 1.0, 0.0)
+	ui.banner("İKİNCİ NEFES", "Daha bitmedi", Color(0.6, 1.0, 0.75), 1.6)
+	return true
 
 func restart() -> void:
 	Engine.time_scale = 1.0
@@ -405,6 +453,9 @@ func _process(dt: float) -> void:
 		return
 	if won:
 		dawn_k = minf(1.0, dawn_k + dt * 0.35)
+	elif (pending_levels > 0 or pending_chest > 0) and not player.dead and not _cinematic():
+		_open_levelup(pending_chest > 0)
+		return
 	world.update_time(t, dawn_k)
 	world.follow(player.global_position)
 	lamp.light_energy = 1.6 + world.night * 1.4
@@ -415,8 +466,9 @@ func _process(dt: float) -> void:
 		pause()
 		ui.hide_pause()  # demo freeze is for screenshots: keep the frame clean
 		return
-	enemy_dmg_mult = 1.0 + t / 600.0
-	em.hp_mult = 1.0 + t / 220.0 + pow(t / 400.0, 2.0)
+	enemy_dmg_mult = 1.0 + t / 450.0
+	# The late term answers evolutions: from about 5:30 the night horde hardens.
+	em.hp_mult = 1.0 + t / 220.0 + pow(t / 400.0, 2.0) + pow(maxf(0.0, t - 330.0) / 160.0, 2.2)
 	var t0 := Time.get_ticks_usec()
 	_director(dt)
 	var t1 := Time.get_ticks_usec()
@@ -475,6 +527,10 @@ func _update_camera(dt: float) -> void:
 		var vp := get_viewport().get_visible_rect().size
 		RenderingServer.global_shader_parameter_set("player_screen", cam.unproject_position(head) / vp)
 		RenderingServer.global_shader_parameter_set("player_depth", cam.global_position.distance_to(head))
+
+## Level-ups wait while an evolution or the boss entrance is on screen.
+func _cinematic() -> bool:
+	return evo_t > 0.0 or boss_intro_t > 0.0
 
 func slowmo(real_seconds: float, scale: float) -> void:
 	slow_t = maxf(slow_t, real_seconds)
@@ -569,6 +625,7 @@ func _director(dt: float) -> void:
 		crystal_t = 40.0
 		if em.count_type(EnemyManager.CRYSTAL) < 8:
 			_grow_crystal()
+	_event(480.0, "night_raid")
 	_event(290.0, "serpent_warn")
 	_event(300.0, "serpent")
 	_event(14.0, "tip_shrine")
@@ -615,6 +672,18 @@ func _event(at: float, id: String) -> void:
 		toast("✦ işaretli fenerin yanında 2 saniye dur: yanınca kalıcı güç verir.", 5.0)
 	elif id == "tip_jump":
 		toast("Sıkıştın mı? Shift ile kay, kayarken hasar almazsın.", 4.5)
+	elif id == "night_raid":
+		# Gece Akını: elites from three sides and a pack of chargers.
+		toast("Gece Akını! Parlayanlar her yandan geliyor.", 4.0)
+		shake(0.3)
+		var base := randf() * TAU
+		for k in 3:
+			var a := base + TAU * k / 3.0
+			var et: int = [EnemyManager.BRUTE, EnemyManager.SPITTER, EnemyManager.BOYNUZ][k]
+			em.spawn(et, pp + Vector3(cos(a), 0, sin(a)) * 20.0, true)
+		for k in 4:
+			var a := base + TAU * (k + 0.5) / 4.0
+			em.spawn(EnemyManager.BOYNUZ, pp + Vector3(cos(a), 0, sin(a)) * 24.0)
 	elif id == "serpent_warn":
 		toast("Toprak kayıyor... bir şey yükseliyor!", 3.5)
 		shake(0.3)
@@ -1011,6 +1080,8 @@ func on_enemy_killed(e) -> void:
 		Sfx.play("roar", Vector3.INF, 1.0, 0.0, 0.8)
 		shake(1.0)
 		_boss_death_fx(e.pos, 0)
+		if demo:
+			print("BOSS_DEAD t=%.1f" % t)
 		return
 	kills += 1
 	var v: int = em.TYPES[e.type]["xp"]
@@ -1033,7 +1104,7 @@ func add_xp(v: float) -> void:
 		level += 1
 		xp_next = xp_needed(level)
 		pending_levels += 1
-	if pending_levels > 0 and state == S_PLAY and not player.dead:
+	if pending_levels > 0 and state == S_PLAY and not player.dead and not _cinematic():
 		_open_levelup(false)
 
 ## Early levels come quickly so the first minute already feels like growth.
@@ -1089,7 +1160,7 @@ func open_chest(p: Vector3) -> void:
 	for i in 8:
 		pickups.gem(p + Vector3(randf_range(-2, 2), 0, randf_range(-2, 2)), 5)
 	pending_chest += 1
-	if state == S_PLAY and not player.dead:
+	if state == S_PLAY and not player.dead and not _cinematic():
 		_open_levelup(true)
 
 func _open_levelup(chest: bool) -> void:
@@ -1172,9 +1243,9 @@ func roll_choices(chest := false) -> Array:
 func apply_choice(c: Dictionary) -> void:
 	var id: String = c["id"]
 	if c["kind"] == "x":
-		st.dmg *= 1.05
-		player.max_hp += 10.0
-		player.heal(10.0)
+		st.dmg *= 1.04
+		player.max_hp += 5.0
+		player.heal(15.0)
 		return
 	if c["kind"] == "e":
 		weapons.lv[id] = Upgrades.EVO_LEVEL
@@ -1276,7 +1347,13 @@ func _evolve_moment(id: String) -> void:
 		away.y = 0
 		e.vel += away.normalized() * 22.0
 		em.damage(e, 200.0 * st.dmg, Vector3.ZERO)
-	ui.banner("DÖNÜŞÜM", evo["name"], evo["color"])
+	var first := false
+	if not demo and not meta.discovered.has(id):
+		meta.discovered.append(id)
+		meta.save_cfg()
+		new_discoveries.append(id)
+		first = true
+	ui.banner("DÖNÜŞÜM  ·  YENİ KEŞİF" if first else "DÖNÜŞÜM", evo["name"], evo["color"])
 	if demo:
 		print("EVO %s t=%.0f lv=%d" % [id, t, level])
 
@@ -1338,9 +1415,19 @@ func _end_run(victory: bool) -> void:
 		"victory": victory, "time": t, "kills": kills, "level": level,
 		"damage": stats_total_damage, "taken": stats_damage_taken,
 		"chests": chests_opened, "shrines": shrines_lit,
+		"crystals": crystals_broken, "serpent": serpent_killed,
+		"evolutions": evolved.size(), "new_discoveries": new_discoveries.duplicate(),
 		"weapons": weapons.lv.duplicate(), "passives": passives.duplicate(),
+		"weapon_damage": weapon_damage.duplicate(),
 		"best": rec, "new_best": new_best, "demo": demo,
 	}
+	var earned: int = meta.reward(summary)
+	summary["kor"] = earned
+	if not demo:
+		meta.kor += earned
+		meta.runs += 1
+		meta.save_cfg()
+	summary["kor_total"] = meta.kor
 	ui.show_end(summary)
 	if demo:
 		print("DEMO_END ", JSON.stringify({"victory": victory, "time": t, "kills": kills, "level": level, "damage": stats_total_damage}))

@@ -67,7 +67,7 @@ const PASSIVES := {
 }
 
 ## Offered when every slot is full and maxed, so a level-up is never empty.
-const FILLER := {"name": "Kor Özü", "icon": "✧", "color": Color(1.0, 0.7, 0.35), "desc": "+%5 hasar ve +10 can"}
+const FILLER := {"name": "Kor Özü", "icon": "✧", "color": Color(1.0, 0.7, 0.35), "desc": "+%4 hasar, +5 can ve biraz iyileşme"}
 
 static func passive_cap(id: String) -> int:
 	return 2 if id == "amount" else 5
