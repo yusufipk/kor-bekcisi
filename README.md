@@ -2,6 +2,10 @@
 
 Yüzen bir adada fener bekçisisin. Öğleden sonra başlayan tur gün batımına, geceye ve sonunda kızıl bir kül gecesine döner; 10 dakika dayan, fenerleri yak ve Kül Devi'ni devir. Silahlar kendiliğinden ateş eder, senin işin koşmak, kaçmak ve toplamak.
 
+## İndir
+
+Derlenmiş sürümler [Releases](https://github.com/yusufipk/kor-bekcisi/releases/latest) sayfasında. Windows'ta `.exe` dosyasını indirip çalıştır. Linux'ta `.x86_64` dosyasını indir, `chmod +x` ile çalıştırılabilir yap ve çalıştır.
+
 ## Çalıştırma
 
 Projeyi Godot 4.7 ile aç ve F5'e bas.
@@ -70,4 +74,3 @@ Higgsfield'da iki aşamada harcanan toplam: **403,79 kredi** (iki aşamanın tav
 - Kayma klibi yere yatan bir kayış değil, çömelme. Kahramanın yüz ifadesi yok, fener modeli hafif eğik duruyor, Tükürgeç ile Hantal'ın silüetleri birbirine benziyor.
 - Efektlerin çoğu çok sessiz üretildi ve 40 dB'e kadar yükseltildi; bazılarında hafif bir zemin gürültüsü duyulabilir. Seviye, kayma, dönüşüm ve kristal sesleri kodla üretiliyor. Geç tur müziğinin 70. saniyesinde kısa bir müzikal iniş var.
 - Gamepad desteği yok.
-- Depoda `addons/beckett` yok, bu yüzden temiz bir kopyada Godot açılışta eksik bir autoload için hata mesajı basar; oyun yine çalışır.
